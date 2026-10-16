@@ -85,12 +85,20 @@ def main() -> None:
         lines.append('    srcs = glob(["src/**/*.rs"]),')
         # non-Rust files beside the sources (shaders, catalogs, scenarios) and the repository
         # files the crates embed (licences, assets); unused inputs cost nothing but a hash
-        lines.append('    compile_data = glob(["src/**", "tests/**"], exclude = ["**/*.rs"], allow_empty = True) + ["//:embedded"],')
+        extra = ', "//tools/bazel:zig-cc-aarch64.sh"' if is_bin else ""
+        lines.append(f'    compile_data = glob(["src/**", "tests/**"], exclude = ["**/*.rs"], allow_empty = True) + ["//:embedded"{extra}],')
         lines.append(f'    edition = "{edition}",')
         if feats:
             lines.append("    crate_features = [" + ", ".join(f'"{f}"' for f in feats) + "],")
         lines.append("    deps = all_crate_deps(normal = True)" + (" + [" + ", ".join(f'"{x}"' for x in sorted(deps)) + "]" if deps else "") + ",")
         lines.append("    proc_macro_deps = all_crate_deps(proc_macro = True)" + (" + [" + ", ".join(f'"{x}"' for x in sorted(proc)) + "]" if proc else "") + ",")
+        if is_bin:
+            # aarch64 links through a wrapper of zig's cc (see tools/bazel/zig-cc-aarch64.sh)
+            lines.append("    rustc_flags = select({")
+            lines.append('        "@platforms//cpu:aarch64": ["-Clinker=tools/bazel/zig-cc-aarch64.sh"],')
+            lines.append('        "//conditions:default": [],')
+            lines.append("    }),")
+
         lines.append(")")
         (d / "BUILD.bazel").write_text("\n".join(lines) + "\n")
     print(f"wrote BUILD.bazel for {len(crates)} crates")

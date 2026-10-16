@@ -12,8 +12,12 @@ rust_binary(
     crate_name = "solidcraft_cli",
     crate_root = "src/main.rs",
     srcs = glob(["src/**/*.rs"]),
-    compile_data = glob(["src/**", "tests/**"], exclude = ["**/*.rs"], allow_empty = True) + ["//:embedded"],
+    compile_data = glob(["src/**", "tests/**"], exclude = ["**/*.rs"], allow_empty = True) + ["//:embedded", "//tools/bazel:zig-cc-aarch64.sh"],
     edition = "2024",
     deps = all_crate_deps(normal = True) + ["//crates/engine:solidcraft-engine", "//crates/gpu:solidcraft-gpu", "//crates/mcp:solidcraft-mcp", "//crates/sim-gpu:solidcraft-sim-gpu"],
     proc_macro_deps = all_crate_deps(proc_macro = True),
+    rustc_flags = select({
+        "@platforms//cpu:aarch64": ["-Clinker=tools/bazel/zig-cc-aarch64.sh"],
+        "//conditions:default": [],
+    }),
 )
