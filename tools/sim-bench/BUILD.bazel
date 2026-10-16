@@ -29,7 +29,15 @@ platform_data(
             "SOLIDCRAFT_GPU": "hardware",
             "SOLIDCRAFT_SIM_DEBUG": "1",
         },
-        exec_compatible_with = ["//platforms:gb10"],
+        # The test action's own exec group ("test.") goes to BuildBuddy's gb10 pool: a bare action
+        # on the Spark executor, which sees the GPU. (exec_compatible_with does not reach the test
+        # exec group, so the platform in //platforms is documentation of the same properties.)
+        exec_properties = {
+            "test.OSFamily": "linux",
+            "test.Arch": "arm64",
+            "test.Pool": "gb10",
+            "test.workload-isolation-type": "none",
+        },
         tags = ["gpu"],
     )
     for cell in ["2", "1.5"]
