@@ -2,7 +2,7 @@
 # on the gb10 executor. `bazel test --config=remote //tools/sim-bench:gb10`; the JSON lands in the
 # test's undeclared outputs (outputs.zip in BuildBuddy).
 
-load("@bazel_skylib//rules:native_binary.bzl", "native_test")
+load("//tools/bazel:gpu_test.bzl", "gpu_test")
 load("@rules_platform//platform_data:defs.bzl", "platform_data")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
@@ -13,8 +13,9 @@ platform_data(
 )
 
 # The same on a Windows workstation with an RTX 4090 (BuildBuddy pool `rtx4090`, a bare
-# executor started by hand there: see README.md). The CLI itself is the test, so no shell is
-# needed on that machine; the JSON goes to stdout (test.log) as there is no --json-out.
+# executor started by hand there: see README.md). The CLI itself is the test (gpu_test makes the
+# executor's platform the test's execution platform, so Bazel uses its Windows test wrapper);
+# the JSON goes to stdout (test.log) as there is no --json-out.
 platform_data(
     name = "solidcraft-cli-windows",
     platform = "//platforms:windows_x86_64",
@@ -22,12 +23,10 @@ platform_data(
 )
 
 [
-    native_test(
+    gpu_test(
         name = "rtx4090" + ("" if cell == "2" else "-" + cell.replace(".", "_")),
         size = "large",
         timeout = "long",
-        src = ":solidcraft-cli-windows",
-        out = "solidcraft-cli-rtx4090-" + cell.replace(".", "_") + ".exe",
         args = [
             "sim-bench",
             "--cell",
@@ -35,6 +34,7 @@ platform_data(
             "--steps",
             "3000",
         ],
+        binary = ":solidcraft-cli-windows",
         exec_properties = {
             "test.OSFamily": "Windows",
             "test.Pool": "rtx4090",
@@ -76,3 +76,51 @@ platform_data(
     )
     for cell in ["2", "1.5"]
 ]
+
+# Any prebuilt binary on the GPU executors (not committed; drop it into prebuilt/). Used for
+# FieldCraft's GPU throughput test, cross-compiled with cargo-zigbuild:
+#   bazel test --config=remote //tools/sim-bench:prebuilt-gb10 --test_arg=--ignored --test_arg=--nocapture
+gpu_test(
+    name = "prebuilt-gb10",
+    size = "large",
+    timeout = "long",
+    binary = ":prebuilt_aarch64",
+    env = {"FIELDCRAFT_REQUIRE_GPU": "1"},
+    exec_properties = {
+        "test.OSFamily": "linux",
+        "test.Arch": "arm64",
+        "test.Pool": "gb10",
+        "test.workload-isolation-type": "none",
+    },
+    tags = [
+        "gpu",
+        "manual",
+    ],
+)
+
+gpu_test(
+    name = "prebuilt-rtx4090",
+    size = "large",
+    timeout = "long",
+    binary = ":prebuilt_windows",
+    env = {"FIELDCRAFT_REQUIRE_GPU": "1"},
+    exec_properties = {
+        "test.OSFamily": "Windows",
+        "test.Pool": "rtx4090",
+        "test.workload-isolation-type": "none",
+    },
+    tags = [
+        "gpu",
+        "manual",
+    ],
+)
+
+filegroup(
+    name = "prebuilt_aarch64",
+    srcs = glob(["prebuilt/aarch64/*"], allow_empty = True),
+)
+
+filegroup(
+    name = "prebuilt_windows",
+    srcs = glob(["prebuilt/windows/*.exe"], allow_empty = True),
+)

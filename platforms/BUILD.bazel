@@ -4,6 +4,15 @@
 
 package(default_visibility = ["//visibility:public"])
 
+# A platform that is a GPU executor at all (what tools/bazel/gpu_test.bzl requires of the test
+# action's execution platform), and which GPU.
+constraint_setting(name = "executor")
+
+constraint_value(
+    name = "gpu_executor",
+    constraint_setting = ":executor",
+)
+
 constraint_setting(name = "gpu")
 
 constraint_value(
@@ -31,6 +40,7 @@ platform(
     constraint_values = [
         "@platforms//os:windows",
         "@platforms//cpu:x86_64",
+        ":gpu_executor",
         ":rtx4090",
     ],
     exec_properties = {
@@ -53,6 +63,7 @@ platform(
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:aarch64",
+        ":gpu_executor",
         ":gb10",
     ],
     exec_properties = {
