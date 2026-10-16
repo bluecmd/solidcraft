@@ -2,7 +2,7 @@
 # on the gb10 executor. `bazel test --config=remote //tools/sim-bench:gb10`; the JSON lands in the
 # test's undeclared outputs (outputs.zip in BuildBuddy).
 
-load("//tools/bazel:gpu_test.bzl", "gpu_test")
+load("//tools/bazel:gpu_test.bzl", "gb10_test", "rtx4090_run")
 load("@rules_platform//platform_data:defs.bzl", "platform_data")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
@@ -13,20 +13,20 @@ platform_data(
 )
 
 # The same on a Windows workstation with an RTX 4090 (BuildBuddy pool `rtx4090`, a bare
-# executor started by hand there: see README.md). The CLI itself is the test (gpu_test makes the
-# executor's platform the test's execution platform, so Bazel uses its Windows test wrapper);
-# the JSON goes to stdout (test.log) as there is no --json-out.
+# executor started by hand there: see README.md), as a build action rather than a test: the
+# Windows test wrapper only ships with a Windows Bazel. `bazel build --config=remote
+# //tools/sim-bench:rtx4090` runs it and leaves rtx4090-2.json in bazel-bin; the log is in the
+# BuildBuddy invocation's action.
 platform_data(
-    name = "solidcraft-cli-windows",
+    # Named with the extension Windows wants of an executable.
+    name = "solidcraft-cli-windows.exe",
     platform = "//platforms:windows_x86_64",
     target = "//apps/solidcraft-cli:solidcraft-cli",
 )
 
 [
-    gpu_test(
+    rtx4090_run(
         name = "rtx4090" + ("" if cell == "2" else "-" + cell.replace(".", "_")),
-        size = "large",
-        timeout = "long",
         args = [
             "sim-bench",
             "--cell",
@@ -34,12 +34,8 @@ platform_data(
             "--steps",
             "3000",
         ],
-        binary = ":solidcraft-cli-windows",
-        exec_properties = {
-            "test.OSFamily": "Windows",
-            "test.Pool": "rtx4090",
-            "test.workload-isolation-type": "none",
-        },
+        binary = ":solidcraft-cli-windows.exe",
+        out = "rtx4090-" + cell.replace(".", "_") + ".json",
         tags = ["gpu"],
     )
     for cell in ["2", "1.5"]
@@ -80,7 +76,7 @@ platform_data(
 # Any prebuilt binary on the GPU executors (not committed; drop it into prebuilt/). Used for
 # FieldCraft's GPU throughput test, cross-compiled with cargo-zigbuild:
 #   bazel test --config=remote //tools/sim-bench:prebuilt-gb10 --test_arg=--ignored --test_arg=--nocapture
-gpu_test(
+gb10_test(
     name = "prebuilt-gb10",
     size = "large",
     timeout = "long",
@@ -98,17 +94,16 @@ gpu_test(
     ],
 )
 
-gpu_test(
+rtx4090_run(
     name = "prebuilt-rtx4090",
-    size = "large",
-    timeout = "long",
+    args = [
+        "--ignored",
+        "--nocapture",
+    ],
     binary = ":prebuilt_windows",
     env = {"FIELDCRAFT_REQUIRE_GPU": "1"},
-    exec_properties = {
-        "test.OSFamily": "Windows",
-        "test.Pool": "rtx4090",
-        "test.workload-isolation-type": "none",
-    },
+    out = "prebuilt-rtx4090.log",
+    out_flag = "--logfile",
     tags = [
         "gpu",
         "manual",

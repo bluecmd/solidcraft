@@ -243,7 +243,9 @@ through wgpu, f64 solver), 3000 lattice steps, commit f2eac6d6:
 | 1.5 mm | 8.1 M | 1037 Mlups, 27.8 s | 100 iterations, 7.1 s | 35.7 s | 102 °C |
 
 The heat balance is exact (470 W in, 470 W out) on both. The lattice runs at about 70% of the
-memory-bandwidth ceiling for D3Q19 in f32 on that part.
+memory-bandwidth ceiling for D3Q19 in f32 on that part. On an NVIDIA RTX 4090 (Windows, through
+the BuildBuddy executor of `tools/sim-bench/README.md`): 2 mm in 4.4 s total at 2995 Mlups
+(thermal 0.5 s), 1.5 mm in 11.5 s at 2841 Mlups (thermal 1.6 s), same temperatures.
 
 The benchmark also runs on a DGX Spark through Bazel remote execution, with no image to build
 or ship: `bazel test --config=remote //tools/sim-bench:gb10` (or `:gb10-1_5`) cross-compiles

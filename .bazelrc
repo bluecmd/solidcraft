@@ -26,6 +26,7 @@ build:remote --remote_executor=grpc://100.99.0.75:1985
 # built for this host's glibc, which the x86 pool's containers predate).
 build:remote --spawn_strategy=sandboxed,local
 build:remote --strategy=TestRunner=remote
+build:remote --strategy=GpuRun=remote
 build:remote --jobs=32
 build:remote --remote_download_toplevel
 
