@@ -2209,6 +2209,9 @@ pub struct Document {
     /// Named, renderer-independent setups. Device/job state is never saved here.
     #[serde(default, skip_serializing_if = "crate::render_settings::RenderSettings::is_empty")]
     pub render: std::sync::Arc<crate::render_settings::RenderSettings>,
+    /// Named simulation studies (thermal, airflow). Results are runtime state, never saved here.
+    #[serde(default, skip_serializing_if = "crate::simulation::SimulationSettings::is_empty")]
+    pub simulation: std::sync::Arc<crate::simulation::SimulationSettings>,
     #[serde(default = "default_format")]
     pub format: String,
     /// The changes of `format` this design has while they are pending (no release has fixed
@@ -2431,6 +2434,7 @@ impl Document {
     pub fn new(name: &str) -> Self {
         Document {
             render: Default::default(),
+            simulation: Default::default(),
             format: default_format(),
             format_pending: crate::format::pending_names(),
             name: name.into(),
@@ -2464,16 +2468,30 @@ impl Document {
         }
     }
 
-    /// A complete structural proof: no non-render field is allowed to differ. Keeping this
+    /// A complete structural proof: no field outside render or simulation intent is allowed to
+    /// differ (neither changes geometry, so neither needs a model evaluation). Keeping this
     /// comparison based on the whole Document also includes fields added in future versions.
     /// The clone/comparison is only needed when render intent actually differs.
     pub fn differs_only_in_render(&self, previous: &Document) -> bool {
-        if std::sync::Arc::ptr_eq(&self.render, &previous.render) || self.render == previous.render || self.render.validate().is_err() {
+        let render = !(std::sync::Arc::ptr_eq(&self.render, &previous.render) || self.render == previous.render);
+        let simulation = !(std::sync::Arc::ptr_eq(&self.simulation, &previous.simulation) || self.simulation == previous.simulation);
+        if !render && !simulation {
+            return false;
+        }
+        if (render && self.render.validate().is_err()) || (simulation && self.simulation.validate().is_err()) {
             return false;
         }
         let mut normalized = previous.clone();
         normalized.render = self.render.clone();
+        normalized.simulation = self.simulation.clone();
         *self == normalized
+    }
+
+    /// Thermal conductivity of a body's physical material, W/(m K): built-in materials have
+    /// textbook values; a design's own materials (density only) and the default count as a
+    /// generic plastic.
+    pub fn thermal_conductivity(&self, body: &str) -> f64 {
+        self.materials.get(body).and_then(|m| material_conductivity(m)).unwrap_or(0.2)
     }
 
     /// The colour a body is shown and exported in (sRGB as 0–1 fractions): its appearance,
@@ -3159,7 +3177,7 @@ impl Document {
 /// Density of the default material (g/cm³), as Fusion's default.
 #[path = "../../../assets/materials/library.rs"]
 mod materials;
-pub use materials::{DEFAULT_DENSITY, MATERIALS, material_color};
+pub use materials::{DEFAULT_DENSITY, MATERIALS, material_color, material_conductivity};
 
 /// A physical material defined in a design (`material.create`): its name, its density and,
 /// optionally, the look it gives bodies without an appearance of their own.

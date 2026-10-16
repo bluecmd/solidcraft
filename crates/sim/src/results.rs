@@ -47,6 +47,7 @@ pub struct FlowSummary {
     pub max_lattice_speed: f64,
     pub max_speed_m_s: f64,
     pub mean_speed_m_s: f64,
+    pub effective_viscosity_m2_s: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -111,6 +112,7 @@ impl Results {
                 max_lattice_speed: f.max_lattice_speed,
                 max_speed_m_s: max,
                 mean_speed_m_s: if n > 0 { sum / n as f64 } else { 0.0 },
+                effective_viscosity_m2_s: f.effective_viscosity,
             }
         });
         let summary = Summary {

@@ -38,3 +38,25 @@ pub fn material_color(name: &str) -> Option<[u8; 3]> {
         _ => return None,
     })
 }
+
+/// Thermal conductivity of a built-in physical material, W/(m K), at room temperature
+/// (textbook values; alloys vary, so a study may override a body's conductivity).
+pub fn material_conductivity(name: &str) -> Option<f64> {
+    Some(match name {
+        "Default" => 0.2,
+        "Steel" => 50.0,
+        "Stainless Steel" => 16.0,
+        "Aluminum" => 205.0,
+        "Brass" => 109.0,
+        "Copper" => 385.0,
+        "Titanium" => 22.0,
+        "Cast Iron" => 55.0,
+        "ABS Plastic" => 0.17,
+        "PLA" => 0.13,
+        "Nylon" => 0.25,
+        "Polycarbonate" => 0.2,
+        "Oak" => 0.17,
+        "Glass" => 1.0,
+        _ => return None,
+    })
+}

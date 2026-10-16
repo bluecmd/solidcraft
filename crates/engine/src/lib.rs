@@ -38,6 +38,7 @@ pub use solidcraft_geom as geom;
 pub use solidcraft_io as io;
 pub use solidcraft_kernel as kernel;
 pub use solidcraft_render as render;
+pub use solidcraft_sim as sim;
 pub use solidcraft_sketch as sketch;
 
 /// Longest accepted request line on the JSON-lines channels (MCP over stdio and the control
@@ -242,6 +243,12 @@ pub struct Session {
     /// The seams `inspect.continuity` last measured, for the viewport to shade. View state: not
     /// part of the design and not an undo step.
     pub continuity: Vec<ContinuitySeam>,
+    /// The last `sim.solve` of this session, for `sim.results`, `sim.probe`, `sim.export` and the
+    /// viewport's temperature/airflow display. View state: not part of the design and not an undo
+    /// step; `revision` says which geometry it was solved on.
+    pub simulation: Option<Arc<SimulationRun>>,
+    /// How the viewport shows the last simulation (`sim.display`).
+    pub simulation_display: SimulationDisplay,
     /// What is hidden or shown in the view (`browser.visibility`): saved with the design, not an
     /// undo step. A design brings its saved visibility when it opens (`Session::new`).
     pub visibility: Visibility,
@@ -302,6 +309,36 @@ pub enum SurfaceAnalysis {
     /// Green where a tool coming along `dir` reaches the face (facing it, nothing above), red
     /// elsewhere.
     Access { dir: Vec3 },
+}
+
+/// A solved simulation study: the fields on the grid and which world body each voxel label is.
+#[derive(Debug)]
+pub struct SimulationRun {
+    pub study: String,
+    /// The session revision the geometry was taken at.
+    pub revision: u64,
+    pub results: solidcraft_sim::Results,
+    /// World body name per body index in `results` (voxel labels).
+    pub bodies: Vec<String>,
+}
+
+impl SimulationRun {
+    /// The voxel label of a world body.
+    pub fn body_index(&self, name: &str) -> Option<u32> {
+        self.bodies.iter().position(|b| b == name).map(|i| i as u32)
+    }
+}
+
+/// What the viewport draws of the last simulation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SimulationDisplay {
+    #[default]
+    Off,
+    /// Surface temperatures as a colour map on the bodies.
+    Temperature,
+    /// Air velocity arrows (and temperatures on the bodies).
+    Velocity,
 }
 
 /// One seam measured by `inspect.continuity`, where the viewport shades it: the stations it was
@@ -370,6 +407,8 @@ impl Session {
             section: None,
             analysis: None,
             continuity: Vec::new(),
+            simulation: None,
+            simulation_display: SimulationDisplay::default(),
             checkpoints: Vec::new(),
             next_checkpoint: 1,
             saved_visibility: visibility.clone(),
@@ -838,6 +877,8 @@ impl Session {
             section: None,
             analysis: None,
             continuity: Vec::new(),
+            simulation: None,
+            simulation_display: SimulationDisplay::default(),
             checkpoints: Vec::new(),
             next_checkpoint: 1,
             visibility: self.visibility.clone(),

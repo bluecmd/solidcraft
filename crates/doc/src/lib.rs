@@ -50,6 +50,7 @@ mod project3d;
 pub mod render_settings;
 pub use project3d::iso_grid;
 pub mod sheet;
+pub mod simulation;
 
 pub use assembly::{
     IDENTITY, MAX_PLACEMENT_DEPTH, MAX_PLACEMENTS, Mat, Occurrence, apply_point, apply_vector, is_identity, map_point_expr, mat_inverse, mat_mul,

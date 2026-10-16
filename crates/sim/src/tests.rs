@@ -238,3 +238,70 @@ fn fan_driven_channel_flow_conserves_mass_and_cools() {
     assert!(r.summary.heat_out_w > 0.0);
     assert!(write_vtk(&r).contains("VECTORS velocity float"));
 }
+
+/// A block in a wider duct, as an enclosure study sees it: the flow stays stable and the air
+/// never gets hotter than the block that heats it.
+#[test]
+fn bluff_body_in_a_duct_stays_stable() {
+    let block = boxed("block", [0.0, 0.0, 0.0], [20.0, 20.0, 10.0], 200.0, 0.5);
+    let mut p = problem(domain([-12.0, -12.0, -12.0], [32.0, 32.0, 22.0]), 2.0, vec![block]);
+    p.walls = [Wall::Open, Wall::Open, Wall::Closed, Wall::Closed, Wall::Closed, Wall::Closed];
+    p.air.mixing_factor = 1.0;
+    p.fans.push(Fan { name: "fan".into(), region: domain([-11.0, -12.0, -12.0], [-8.0, 32.0, 22.0]), velocity: Vec3::new(1.5, 0.0, 0.0) });
+    p.flow = Some(FlowSettings { max_steps: 1500, buoyancy: false, ..Default::default() });
+    let r = solve(&p, &mut go()).unwrap();
+    let f = r.summary.flow.as_ref().unwrap();
+    assert!(f.max_lattice_speed < 0.3, "{f:?}");
+    assert!(f.max_speed_m_s < 4.0 && f.max_speed_m_s > 1.0, "{f:?}");
+    assert!(r.summary.air_max_c <= r.summary.bodies[0].max_c + 0.5, "{:?}", r.summary);
+    // With the air kept near ambient by the fan, the film coefficient alone sets the rise: P/(hA).
+    let expected = 20.0 + 0.5 / (8.0 * 1.6e-3);
+    assert!((r.summary.bodies[0].mean_c - expected).abs() < 2.0, "{:?} vs {expected}", r.summary.bodies[0]);
+    let inlet = r.temperature_at(Vec3::new(-5.0, 10.0, 5.0)).unwrap();
+    let outlet = r.temperature_at(Vec3::new(25.0, 10.0, 5.0)).unwrap();
+    assert!(outlet > inlet + 0.5, "the air leaves warmer than it came: {inlet} → {outlet}");
+}
+
+#[test]
+#[ignore]
+fn debug_duct() {
+    let env = |k: &str, d: f64| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+    let block = boxed("block", [0.0, 0.0, 0.0], [20.0, 20.0, 10.0], 200.0, 0.5);
+    let mut p = problem(domain([-12.0, -12.0, -12.0], [32.0, 32.0, 22.0]), 2.0, vec![block]);
+    p.walls = [Wall::Open, Wall::Open, Wall::Closed, Wall::Closed, Wall::Closed, Wall::Closed];
+    p.air.mixing_factor = 1.0;
+    p.fans.push(Fan {
+        name: "fan".into(),
+        region: domain([env("SIM_FAN", -11.0), -12.0, -12.0], [-8.0, 32.0, 22.0]),
+        velocity: Vec3::new(1.5, 0.0, 0.0),
+    });
+    let mut out = Vec::new();
+    for steps in [1000, 2000, 4000] {
+        p.flow = Some(FlowSettings {
+            max_steps: steps,
+            buoyancy: false,
+            tolerance: 1e-12,
+            trt_lambda: env("SIM_LAMBDA", 1.0 / 12.0),
+            max_cell_reynolds: env("SIM_RE", 10.0),
+            smagorinsky: env("SIM_CS", 0.12),
+            lattice_velocity: env("SIM_U", 0.05),
+            ..Default::default()
+        });
+        match solve(&p, &mut go()) {
+            Ok(r) => {
+                let f = r.summary.flow.as_ref().unwrap();
+                out.push(format!("{steps}: max {:.2} change {:.4}", f.max_speed_m_s, f.change));
+            }
+            Err(e) => out.push(format!("{steps}: {e}")),
+        }
+    }
+    eprintln!(
+        "RESULT lambda={} re={} cs={} u={} fan={}: {}",
+        env("SIM_LAMBDA", 1.0 / 12.0),
+        env("SIM_RE", 10.0),
+        env("SIM_CS", 0.12),
+        env("SIM_U", 0.05),
+        env("SIM_FAN", -11.0),
+        out.join(" | ")
+    );
+}

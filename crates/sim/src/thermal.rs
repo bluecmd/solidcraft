@@ -51,9 +51,13 @@ pub(crate) fn solve(grid: &Grid, voxels: &Voxels, problem: &Problem, flow: Optio
     let area = d * d;
     let h = problem.thermal.film_coefficient;
     let ambient = problem.thermal.ambient_c;
-    let mix = if flow.is_some() { 1.0 } else { problem.air.mixing_factor };
-    let k_air = problem.air.conductivity * mix;
     let rho_cp = problem.air.density * problem.air.specific_heat;
+    // Still air mixes by the study's factor; moving air carries heat by advection plus the eddy
+    // diffusivity that goes with the viscosity the flow was solved with (turbulent Prandtl 0.9).
+    let k_air = match flow {
+        None => problem.air.conductivity * problem.air.mixing_factor,
+        Some(f) => problem.air.conductivity.max(rho_cp * f.effective_viscosity / 0.9),
+    };
 
     // conductivity, fixed temperature and source per cell
     let conductivity = |idx: usize| -> f64 {

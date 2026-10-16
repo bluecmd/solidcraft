@@ -30,11 +30,28 @@ pub struct FlowSettings {
     pub coupling_iterations: usize,
     /// Target lattice speed for the fastest expected flow (sets the time step); below 0.1 for accuracy.
     pub lattice_velocity: f64,
+    /// The viscosity is raised so that `u·dx/ν` stays below this: on a grid too coarse to resolve
+    /// turbulence the extra viscosity stands for its mixing (and the same eddy diffusivity carries
+    /// heat in the air). Larger is more faithful at fine resolution but less stable.
+    pub max_cell_reynolds: f64,
+    /// Two-relaxation-time "magic" parameter Λ. 1/12 cancels the third-order spatial error and
+    /// keeps inertial flows past obstacles steady; 1/4 (best for creeping flow through porous
+    /// media) lets a shear layer at a fan exit grow until the solve blows up.
+    pub trt_lambda: f64,
 }
 
 impl Default for FlowSettings {
     fn default() -> Self {
-        FlowSettings { max_steps: 4000, tolerance: 1e-3, smagorinsky: 0.12, buoyancy: true, coupling_iterations: 2, lattice_velocity: 0.05 }
+        FlowSettings {
+            max_steps: 4000,
+            tolerance: 1e-3,
+            smagorinsky: 0.12,
+            buoyancy: true,
+            coupling_iterations: 2,
+            lattice_velocity: 0.05,
+            max_cell_reynolds: 10.0,
+            trt_lambda: 1.0 / 12.0,
+        }
     }
 }
 
@@ -49,6 +66,8 @@ impl FlowSettings {
             return Err(SimError::Invalid("coupling_iterations must be in 1..=100".into()));
         }
         finite(self.lattice_velocity, 1e-4, 0.2, "lattice velocity")?;
+        finite(self.max_cell_reynolds, 0.1, 1e6, "max cell Reynolds number")?;
+        finite(self.trt_lambda, 1e-4, 10.0, "TRT lambda")?;
         Ok(())
     }
 }
@@ -68,6 +87,8 @@ pub struct FlowReport {
     /// Fastest lattice speed seen (stability needs it well below 0.3).
     pub max_lattice_speed: f64,
     pub air_cells: usize,
+    /// The kinematic viscosity the air was solved with, m²/s (molecular, or raised for the grid).
+    pub effective_viscosity: f64,
 }
 
 const Q: usize = 19;
@@ -238,7 +259,14 @@ pub(crate) fn solve(
     let dt = settings.lattice_velocity * dx / u_ref;
     let u_scale = (dt / dx) as f32; // physical m/s → lattice
     let nu_lat = problem.air.kinematic_viscosity * dt / (dx * dx);
-    let tau0 = (3.0 * nu_lat + 0.5) as f32;
+    // Eddy-viscosity floor: the grid Reynolds number u·dx/ν stays below the limit.
+    let nu_floor = settings.lattice_velocity / settings.max_cell_reynolds;
+    let nu_used = nu_lat.max(nu_floor);
+    let effective_viscosity = nu_used * dx * dx / dt;
+    let tau0 = (3.0 * nu_used + 0.5) as f32;
+    // Two-relaxation-time collision: the odd moments relax with their own rate, set by the
+    // "magic" Λ, which keeps the scheme stable near τ = 1/2.
+    let lambda = settings.trt_lambda as f32;
     let cs2 = settings.smagorinsky as f32 * settings.smagorinsky as f32;
     // buoyancy force (lattice units) per kelvin above ambient
     let g_lat = (9.81 * problem.air.thermal_expansion * dt * dt / dx) as f32;
@@ -267,6 +295,7 @@ pub(crate) fn solve(
     let mut max_speed = 0.0f64;
     let chunk = (m / 64).max(4096);
     for step in 1..=settings.max_steps {
+        let ramp = (step as f32 / 200.0).min(1.0);
         // collision (in place), with macroscopic update
         {
             let dtemp = &dtemp;
@@ -298,7 +327,17 @@ pub(crate) fn solve(
                         let force = [0.0, 0.0, g_lat * dtemp.get(cell).copied().unwrap_or(0.0)];
                         let mut vel = [(mom[0] + 0.5 * force[0]) / dens, (mom[1] + 0.5 * force[1]) / dens, (mom[2] + 0.5 * force[2]) / dens];
                         if let Some(Some(fv)) = fan.get(cell) {
-                            vel = *fv;
+                            // A fan cell is held at its velocity: its populations are the
+                            // equilibrium (ramped in over the first steps so the start is quiet).
+                            vel = [fv[0] * ramp, fv[1] * ramp, fv[2] * ramp];
+                            *pop = equilibrium(dens, vel);
+                            if let Some(o) = uc.get_mut(r) {
+                                *o = vel;
+                            }
+                            if let Some(o) = rc.get_mut(r) {
+                                *o = dens;
+                            }
+                            continue;
                         }
                         let feq = equilibrium(dens, vel);
                         // Smagorinsky: local relaxation time from the non-equilibrium stress
@@ -318,16 +357,21 @@ pub(crate) fn solve(
                             let q = (pi[0] * pi[0] + pi[1] * pi[1] + pi[2] * pi[2] + 2.0 * (pi[3] * pi[3] + pi[4] * pi[4] + pi[5] * pi[5])).sqrt();
                             tau = 0.5 * (tau0 + (tau0 * tau0 + 18.0 * cs2 * q / dens).sqrt());
                         }
-                        let omega = 1.0 / tau;
+                        let omega_p = 1.0 / tau;
+                        let omega_m = 1.0 / (lambda / (tau - 0.5) + 0.5);
+                        let old = *pop;
                         for a in 0..Q {
+                            let o = OPP[a];
+                            let sym = 0.5 * (old[a] + old[o]) - 0.5 * (feq[a] + feq[o]);
+                            let anti = 0.5 * (old[a] - old[o]) - 0.5 * (feq[a] - feq[o]);
                             let (cx, cy, cz) = (C[a][0] as f32, C[a][1] as f32, C[a][2] as f32);
                             let cu = cx * vel[0] + cy * vel[1] + cz * vel[2];
                             // Guo forcing term
                             let fx = (cx - vel[0]) * 3.0 + cu * 3.0 * 3.0 * cx;
                             let fy = (cy - vel[1]) * 3.0 + cu * 3.0 * 3.0 * cy;
                             let fz = (cz - vel[2]) * 3.0 + cu * 3.0 * 3.0 * cz;
-                            let forcing = (1.0 - 0.5 * omega) * W[a] * (fx * force[0] + fy * force[1] + fz * force[2]);
-                            pop[a] = pop[a] - omega * (pop[a] - feq[a]) + forcing;
+                            let forcing = (1.0 - 0.5 * omega_p) * W[a] * (fx * force[0] + fy * force[1] + fz * force[2]);
+                            pop[a] = old[a] - omega_p * sym - omega_m * anti + forcing;
                         }
                         if let Some(o) = uc.get_mut(r) {
                             *o = vel;
@@ -374,7 +418,7 @@ pub(crate) fn solve(
                 fastest = fastest.max(s);
             }
             max_speed = f64::from(fastest.sqrt());
-            if !max_speed.is_finite() {
+            if !max_speed.is_finite() || !num.is_finite() || !den.is_finite() || max_speed > 0.5 {
                 return Err(SimError::NotConverged(
                     "the airflow solve blew up; try a coarser grid, a lower fan speed or a smaller lattice velocity".into(),
                 ));
@@ -390,7 +434,7 @@ pub(crate) fn solve(
             if !progress("flow", step, settings.max_steps) {
                 return Err(SimError::Cancelled);
             }
-            if step >= 200 && change < settings.tolerance {
+            if step >= 400 && change < settings.tolerance {
                 converged = true;
                 break;
             }
@@ -407,5 +451,5 @@ pub(crate) fn solve(
             *op = (r - 1.0) * p_scale;
         }
     }
-    Ok(FlowReport { velocity, pressure, steps, converged, change, dt, max_lattice_speed: max_speed, air_cells: m })
+    Ok(FlowReport { velocity, pressure, steps, converged, change, dt, max_lattice_speed: max_speed, air_cells: m, effective_viscosity })
 }
