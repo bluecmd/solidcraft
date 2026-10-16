@@ -234,6 +234,17 @@ about 3 GB of GPU memory). The stability settings (`--max-cell-reynolds`, `--lat
 `--smagorinsky`, `--trt-lambda`, `--sponge-cells`, `--sponge-viscosity`, `--fan-speed`) are
 exposed for tuning.
 
+Measured on an NVIDIA GB10 (DGX Spark, a time-sliced slice shared with other workloads, Vulkan
+through wgpu, f64 solver), 3000 lattice steps, commit f2eac6d6:
+
+| cell | cells | lattice | thermal | total | hottest CPU |
+|---|---|---|---|---|---|
+| 2 mm | 3.4 M | 1023 Mlups, 11.0 s | 75 iterations, 2.2 s | 13.6 s | 109 °C |
+| 1.5 mm | 8.1 M | 1037 Mlups, 27.8 s | 100 iterations, 7.1 s | 35.7 s | 102 °C |
+
+The heat balance is exact (470 W in, 470 W out) on both. The lattice runs at about 70% of the
+memory-bandwidth ceiling for D3Q19 in f32 on that part.
+
 For solver work: `--cpu-flow` runs the airflow on the CPU reference and only the temperature
 solve on the GPU; `--dump-thermal FILE` writes the assembled temperature system
 (`ThermalSystem::to_bytes`) before solving it, and the ignored tests `dumped_system_on_the_cpu`
