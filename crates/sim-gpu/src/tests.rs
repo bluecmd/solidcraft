@@ -262,3 +262,18 @@ fn water_loop_matches_the_cpu_reference() {
     assert!(worst < 0.1, "largest temperature difference {worst} K");
     assert!(dev.summary.fluids[1].max_speed_m_s > 0.3, "{:?}", dev.summary.fluids);
 }
+
+#[test]
+#[ignore]
+fn print_adapter_limits() {
+    use solidcraft_gpu::select::{Policy, pick};
+    let (adapter, report) = pick(Policy::Auto).unwrap();
+    let l = adapter.limits();
+    eprintln!(
+        "{}: max_buffer_size {} MB, max_storage_buffer_binding_size {} MB, storage buffers per stage {}",
+        report.name,
+        l.max_buffer_size >> 20,
+        l.max_storage_buffer_binding_size >> 20,
+        l.max_storage_buffers_per_shader_stage
+    );
+}

@@ -56,8 +56,13 @@ pub fn equilibrium(rho: f32, u: [f32; 3]) -> [f32; Q] {
     f
 }
 
-/// Two-relaxation-time collision with a Smagorinsky eddy viscosity and Guo forcing, on one cell:
-/// `pop` in, post-collision `pop` out; returns the velocity and density used.
+/// Collision with a Smagorinsky eddy viscosity and Guo forcing, on one cell: `pop` in,
+/// post-collision `pop` out; returns the velocity and density used.
+///
+/// `lambda > 0`: two-relaxation-time (TRT) with that magic parameter. `lambda == 0`: regularized
+/// BGK (Latt & Chopard 2006): the non-equilibrium part is replaced by its projection on the
+/// second-order Hermite moment before relaxing, which removes the ghost modes that grow where the
+/// local cell Reynolds number is high (jets out of fans, flow through fin gaps).
 #[inline]
 pub fn collide(pop: &mut [f32; Q], force: [f32; 3], tau0: f32, cs2: f32, lambda: f32, fan: Option<[f32; 3]>) -> ([f32; 3], f32) {
     let mut dens = 0.0f32;
@@ -80,22 +85,38 @@ pub fn collide(pop: &mut [f32; Q], force: [f32; 3], tau0: f32, cs2: f32, lambda:
     }
     let feq = equilibrium(dens, vel);
     let mut tau = tau0;
+    let mut pi = [0.0f32; 6]; // xx, yy, zz, xy, xz, yz of the non-equilibrium stress
+    for a in 0..Q {
+        let neq = pop[a] - feq[a];
+        let (cx, cy, cz) = (C[a][0] as f32, C[a][1] as f32, C[a][2] as f32);
+        pi[0] += cx * cx * neq;
+        pi[1] += cy * cy * neq;
+        pi[2] += cz * cz * neq;
+        pi[3] += cx * cy * neq;
+        pi[4] += cx * cz * neq;
+        pi[5] += cy * cz * neq;
+    }
     if cs2 > 0.0 {
-        let mut pi = [0.0f32; 6]; // xx, yy, zz, xy, xz, yz
-        for a in 0..Q {
-            let neq = pop[a] - feq[a];
-            let (cx, cy, cz) = (C[a][0] as f32, C[a][1] as f32, C[a][2] as f32);
-            pi[0] += cx * cx * neq;
-            pi[1] += cy * cy * neq;
-            pi[2] += cz * cz * neq;
-            pi[3] += cx * cy * neq;
-            pi[4] += cx * cz * neq;
-            pi[5] += cy * cz * neq;
-        }
         let q = (pi[0] * pi[0] + pi[1] * pi[1] + pi[2] * pi[2] + 2.0 * (pi[3] * pi[3] + pi[4] * pi[4] + pi[5] * pi[5])).sqrt();
         tau = 0.5 * (tau0 + (tau0 * tau0 + 18.0 * cs2 * q / dens).sqrt());
     }
     let omega_p = 1.0 / tau;
+    if lambda <= 0.0 {
+        // regularized: f = feq + (1 - ω) f_neq(Π) + forcing, f_neq(Π)_a = w_a 9/2 (c_a c_a - I/3) : Π
+        let trace = (pi[0] + pi[1] + pi[2]) / 3.0;
+        for a in 0..Q {
+            let (cx, cy, cz) = (C[a][0] as f32, C[a][1] as f32, C[a][2] as f32);
+            let qpi = cx * cx * pi[0] + cy * cy * pi[1] + cz * cz * pi[2] + 2.0 * (cx * cy * pi[3] + cx * cz * pi[4] + cy * cz * pi[5]) - trace;
+            let fneq = W[a] * 4.5 * qpi;
+            let cu = cx * vel[0] + cy * vel[1] + cz * vel[2];
+            let fx = (cx - vel[0]) * 3.0 + cu * 9.0 * cx;
+            let fy = (cy - vel[1]) * 3.0 + cu * 9.0 * cy;
+            let fz = (cz - vel[2]) * 3.0 + cu * 9.0 * cz;
+            let forcing = (1.0 - 0.5 * omega_p) * W[a] * (fx * force[0] + fy * force[1] + fz * force[2]);
+            pop[a] = feq[a] + (1.0 - omega_p) * fneq + forcing;
+        }
+        return (vel, dens);
+    }
     let omega_m = 1.0 / (lambda / (tau - 0.5) + 0.5);
     let old = *pop;
     for a in 0..Q {

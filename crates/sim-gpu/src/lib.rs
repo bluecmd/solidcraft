@@ -153,8 +153,7 @@ impl GpuAccelerator {
         let mut limits = wgpu::Limits::default().using_resolution(have.clone());
         limits.max_buffer_size = have.max_buffer_size;
         limits.max_storage_buffer_binding_size = have.max_storage_buffer_binding_size;
-        limits.max_storage_buffers_per_shader_stage =
-            have.max_storage_buffers_per_shader_stage.min(8).max(limits.max_storage_buffers_per_shader_stage);
+        limits.max_storage_buffers_per_shader_stage = have.max_storage_buffers_per_shader_stage.max(limits.max_storage_buffers_per_shader_stage);
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("solidcraft simulation"),
             required_features,
@@ -210,8 +209,10 @@ impl GpuAccelerator {
             })
         };
         let lbm = module("solidcraft sim lbm", LBM_SHADER);
-        let lbm_layout =
-            layout("solidcraft sim lbm", &[entry(0, UNIFORM), entry(1, READ), entry(2, WRITE), entry(3, WRITE), entry(4, READ), entry(5, READ)]);
+        let lbm_layout = layout(
+            "solidcraft sim lbm",
+            &[entry(0, UNIFORM), entry(1, READ), entry(2, WRITE), entry(3, WRITE), entry(4, READ), entry(5, READ), entry(6, READ)],
+        );
         let reduce_mod = module("solidcraft sim reduce", REDUCE_SHADER);
         let reduce_layout = layout("solidcraft sim reduce", &[entry(0, UNIFORM), entry(1, READ), entry(2, READ), entry(3, READ), entry(4, WRITE)]);
         let solve_pipes = |source: &str, elem: u64| {
@@ -398,6 +399,13 @@ impl GpuAccelerator {
         setup.validate()?;
         let n = setup.len();
         let n32 = u32::try_from(n).map_err(|_| SimError::TooLarge("too many cells for the GPU".into()))?;
+        // The kernels index populations as a * n + cell in 32 bits.
+        if (19 * n as u64) > u64::from(u32::MAX) {
+            return Err(SimError::TooLarge(format!(
+                "{n} cells: the GPU lattice indexes 19 populations per cell in 32 bits (at most {} cells); use a coarser cell size",
+                u32::MAX / 19
+            )));
+        }
         self.check_size(19 * 4 * n as u64, "the lattice")?;
         let (gx, gy) = groups(n, LBM_WG)?;
         let (rgx, rgy) = groups(n, VEC_WG)?;
@@ -408,6 +416,10 @@ impl GpuAccelerator {
         let dtemp = match &setup.dtemp {
             Some(t) => self.storage("sim dtemp", &bytes_f32(t)),
             None => self.empty("sim dtemp", 4 * n as u64),
+        };
+        let sponge = match &setup.sponge {
+            Some(t) => self.storage("sim sponge", &bytes_f32(t)),
+            None => self.empty("sim sponge", 4 * n as u64),
         };
         let f = self.empty("sim populations", 19 * 4 * n as u64);
         let u = self.empty("sim velocity", 16 * n as u64);
@@ -441,6 +453,7 @@ impl GpuAccelerator {
                         wgpu::BindGroupEntry { binding: 3, resource: u.as_entire_binding() },
                         wgpu::BindGroupEntry { binding: 4, resource: fans.as_entire_binding() },
                         wgpu::BindGroupEntry { binding: 5, resource: dtemp.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 6, resource: sponge.as_entire_binding() },
                     ],
                 });
                 (params, bind)

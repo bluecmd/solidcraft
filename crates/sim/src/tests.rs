@@ -389,3 +389,34 @@ fn streamlines_stay_in_their_fluid_zone() {
     // it turns the corners of the loop: reaches leg B (y around 31)
     assert!(line.points.iter().any(|q| q.y > 28.0), "it goes round the loop");
 }
+
+/// A fan wall without a baffle in a duct open at both ends: air recirculates back through the
+/// gaps beside the fans at several times the fan speed, and mixes in and out of the open inlet.
+/// TRT with a zero-gradient open boundary blew up here; regularized collision with a sponge at
+/// the open walls stays bounded.
+#[test]
+fn an_unbaffled_fan_wall_stays_stable() {
+    let block = boxed("block", [30.0, 90.0, 0.0], [70.0, 110.0, 20.0], 200.0, 2.0);
+    let mut p = problem(domain([0.0, 0.0, 0.0], [100.0, 160.0, 30.0]), 2.0, vec![block]);
+    p.walls = [Wall::Closed, Wall::Closed, Wall::Open, Wall::Open, Wall::Closed, Wall::Closed];
+    p.air.mixing_factor = 1.0;
+    for k in 0..2 {
+        let x0 = 10.0 + 45.0 * f64::from(k);
+        p.fans.push(Fan { name: format!("fan{k}"), region: domain([x0, 50.0, 2.0], [x0 + 35.0, 58.0, 28.0]), velocity: Vec3::new(0.0, 4.0, 0.0) });
+    }
+    p.flow = Some(FlowSettings { max_steps: 2500, buoyancy: false, tolerance: 1e-12, ..Default::default() });
+    let r = solve(&p, &mut go()).unwrap();
+    let f = r.summary.flow.as_ref().unwrap();
+    assert!(f.max_lattice_speed < 0.3, "{f:?}");
+    // the fans move air from front to back overall
+    let (mut sum, mut n) = (0.0, 0);
+    for i in 0..50 {
+        for k in 0..15 {
+            if let Some(v) = r.velocity_at(Vec3::new(1.0 + 2.0 * i as f64, 140.0, 1.0 + 2.0 * k as f64)) {
+                sum += v.y;
+                n += 1;
+            }
+        }
+    }
+    assert!(sum / n as f64 > 0.3, "net flow to the back: {}", sum / n as f64);
+}

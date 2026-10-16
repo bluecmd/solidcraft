@@ -50,9 +50,16 @@ until the velocity field stops changing (a steady or time-averaged flow).
   opening, or across a duct.
 - Solid cells and closed walls bounce back; open walls are pressure outlets that also let air
   in.
-- Two-relaxation-time collision (Λ = 1/12) with a Smagorinsky eddy viscosity, plus a viscosity
-  floor that keeps the cell Reynolds number (u·dx/ν) at or below `max_cell_reynolds` (10 by
-  default). On a 1–2 mm grid at fan speeds this raises the viscosity well above air's: the
+- Regularized BGK collision (Latt & Chopard 2006) by default: the non-equilibrium part is
+  projected on its second-order moment before relaxing, which removes the modes that grow where
+  jets and recirculation push the local cell Reynolds number far above the design value (a fan
+  wall without a baffle drives air back through its gaps at several times the fan speed).
+  Two-relaxation-time collision remains available (`trt_lambda` > 0; 1/12 recommended). Both use
+  a Smagorinsky eddy viscosity and a viscosity floor that keeps the cell Reynolds number
+  (u·dx/ν) at or below `max_cell_reynolds` (10 by default).
+- A sponge layer beside every open wall (`sponge_cells`, 6 by default; `sponge_viscosity`): the
+  viscosity ramps up towards the wall so vortices are damped before they reach the boundary,
+  where air may flow in and out at once. On a 1–2 mm grid at fan speeds this raises the viscosity well above air's: the
   flow you see is the bulk routing of the air with turbulent mixing standing in for the detail
   the grid cannot carry. A finer grid or a higher limit is more faithful and less stable.
 - Buoyancy (Boussinesq, gravity along −Z) is on by default; with it the thermal and flow
@@ -205,3 +212,15 @@ at z = 12 mm.
   from the flow. Use 5–10 still, 20–50 with a fan over the part.
 - **Validation.** `crates/sim/src/tests.rs` checks the solver against analytic conduction, the
   P/(hA) film limit, mass conservation of a fan-driven channel and a bluff body in a duct.
+
+## Benchmark
+
+`solidcraft-cli sim-bench [--cell MM] [--steps N] [--power W] [--cpu] [--json-out FILE]` times a
+2U server study on the GPU backend: a 440 × 700 × 88 mm chassis with sheet-metal sides, open front
+and back, a fan wall of six fans in a bulkhead, two CPUs of `--power` W (200 by default) under
+heat sinks of 20 fins 1.6 mm thick at 4.5 mm pitch, eight DIMMs and a PSU. It reports the cells,
+the lattice throughput (million lattice updates per second), the time of each phase, the heat
+balance and the hottest parts. The fins are resolved from about 1 mm cells (27 million cells,
+about 3 GB of GPU memory). The stability settings (`--max-cell-reynolds`, `--lattice-velocity`,
+`--smagorinsky`, `--trt-lambda`, `--sponge-cells`, `--sponge-viscosity`, `--fan-speed`) are
+exposed for tuning.

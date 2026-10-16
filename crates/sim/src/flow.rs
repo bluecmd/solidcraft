@@ -38,9 +38,16 @@ pub struct FlowSettings {
     /// turbulence the extra viscosity stands for its mixing (and the same eddy diffusivity carries
     /// heat in the air). Larger is more faithful at fine resolution but less stable.
     pub max_cell_reynolds: f64,
-    /// Two-relaxation-time "magic" parameter Λ. 1/12 cancels the third-order spatial error and
-    /// keeps inertial flows past obstacles steady; 1/4 (best for creeping flow through porous
-    /// media) lets a shear layer at a fan exit grow until the solve blows up.
+    /// Cells of sponge beside each open wall (viscosity ramps up towards the wall); 0 for none.
+    pub sponge_cells: usize,
+    /// Extra lattice viscosity at the open wall itself (the sponge's strength).
+    pub sponge_viscosity: f64,
+    /// Collision model: 0 (the default) is regularized BGK (Latt & Chopard 2006), which filters
+    /// the non-hydrodynamic modes and stays stable where jets and recirculation push the local
+    /// cell Reynolds number far above `max_cell_reynolds`. A positive value is two-relaxation-time
+    /// with that magic parameter Λ: 1/12 cancels the third-order spatial error; 1/4 (best for
+    /// creeping flow through porous media) lets a shear layer at a fan exit grow until the solve
+    /// blows up.
     pub trt_lambda: f64,
 }
 
@@ -54,7 +61,9 @@ impl Default for FlowSettings {
             coupling_iterations: 2,
             lattice_velocity: 0.05,
             max_cell_reynolds: 10.0,
-            trt_lambda: 1.0 / 12.0,
+            sponge_cells: 6,
+            sponge_viscosity: 0.08,
+            trt_lambda: 0.0,
         }
     }
 }
@@ -71,7 +80,11 @@ impl FlowSettings {
         }
         finite(self.lattice_velocity, 1e-4, 0.2, "lattice velocity")?;
         finite(self.max_cell_reynolds, 0.1, 1e6, "max cell Reynolds number")?;
-        finite(self.trt_lambda, 1e-4, 10.0, "TRT lambda")?;
+        finite(self.trt_lambda, 0.0, 10.0, "TRT lambda (0: regularized collision)")?;
+        if self.sponge_cells > 64 {
+            return Err(SimError::Invalid("sponge_cells must be at most 64".into()));
+        }
+        finite(self.sponge_viscosity, 0.0, 1.0, "sponge viscosity")?;
         Ok(())
     }
 }
@@ -230,6 +243,24 @@ pub fn setup(
     } else {
         None
     };
+    // Sponge beside the air's open walls: extra relaxation time 3·ν_s·s², s = 1 at the wall,
+    // falling to 0 over `sponge_cells`.
+    let sponge = (open_walls != 0 && settings.sponge_cells > 0 && settings.sponge_viscosity > 0.0).then(|| {
+        let w = settings.sponge_cells as f64;
+        (0..n)
+            .map(|idx| {
+                let [i, j, k] = grid.coords(idx);
+                let dist = [i, grid.nx - 1 - i, j, grid.ny - 1 - j, k, grid.nz - 1 - k];
+                let mut s = 0.0f64;
+                for (wall, d) in dist.iter().enumerate() {
+                    if open_walls & (1 << wall) != 0 && (*d as f64) < w {
+                        s = s.max(1.0 - *d as f64 / w);
+                    }
+                }
+                (3.0 * settings.sponge_viscosity * s * s) as f32
+            })
+            .collect()
+    });
     let lattice = LatticeSetup {
         nx: grid.nx,
         ny: grid.ny,
@@ -243,6 +274,7 @@ pub fn setup(
         g_lat,
         ramp_steps: 200,
         dtemp,
+        sponge,
         max_steps: settings.max_steps,
         tolerance: settings.tolerance,
     };

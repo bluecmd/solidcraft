@@ -143,6 +143,10 @@ pub struct Fan {
     pub velocity: Vec3,
 }
 
+/// The most cells a study may ask for (a GPU with ~100 GB holds about a billion D3Q19 cells;
+/// each backend refuses what its own memory cannot hold).
+pub const MAX_CELLS: usize = 1_000_000_000;
+
 /// Caps that keep a hostile or careless setup from eating the machine.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -232,8 +236,8 @@ impl Problem {
         if let Some(flow) = &self.flow {
             flow.validate()?;
         }
-        if self.limits.max_cells == 0 || self.limits.max_cells > 64_000_000 {
-            return Err(SimError::Invalid("max_cells must be in 1..=64000000".into()));
+        if self.limits.max_cells == 0 || self.limits.max_cells > MAX_CELLS {
+            return Err(SimError::Invalid(format!("max_cells must be in 1..={MAX_CELLS}")));
         }
         if self.limits.max_iterations == 0 || self.limits.max_iterations > 1_000_000 {
             return Err(SimError::Invalid("max_iterations must be in 1..=1000000".into()));

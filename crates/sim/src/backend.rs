@@ -37,6 +37,9 @@ pub struct LatticeSetup {
     pub ramp_steps: u32,
     /// Kelvin above ambient per grid cell (buoyancy); `None` for no buoyancy.
     pub dtemp: Option<Vec<f32>>,
+    /// Extra relaxation time per grid cell (a sponge layer beside open walls: the viscosity
+    /// rises there so vortices are damped before they reach the boundary); `None` for none.
+    pub sponge: Option<Vec<f32>>,
     pub max_steps: usize,
     /// Relative change of the velocity field between checks (every 50 steps) that counts as steady.
     pub tolerance: f64,
@@ -55,6 +58,11 @@ impl LatticeSetup {
     pub fn validate(&self) -> Result<()> {
         if self.flags.len() != self.len() || self.is_empty() {
             return Err(SimError::Invalid("lattice flags do not match the grid".into()));
+        }
+        if let Some(t) = &self.sponge
+            && (t.len() != self.len() || t.iter().any(|v| !v.is_finite() || *v < 0.0))
+        {
+            return Err(SimError::Invalid("lattice sponge does not match the grid".into()));
         }
         if let Some(t) = &self.dtemp
             && t.len() != self.len()
@@ -191,6 +199,10 @@ impl Accelerator for CpuAccelerator {
             Some(t) => cells.iter().map(|&idx| t.get(idx as usize).copied().unwrap_or(0.0)).collect(),
             None => vec![0.0; m],
         };
+        let sponge: Vec<f32> = match &setup.sponge {
+            Some(t) => cells.iter().map(|&idx| t.get(idx as usize).copied().unwrap_or(0.0)).collect(),
+            None => vec![0.0; m],
+        };
         let (tau0, cs2, lambda, g_lat) = (setup.tau0, setup.smagorinsky2, setup.lambda, setup.g_lat);
         let mut steps = 0;
         let mut converged = false;
@@ -201,6 +213,7 @@ impl Accelerator for CpuAccelerator {
             let ramp = if setup.ramp_steps > 0 { (step as f32 / setup.ramp_steps as f32).min(1.0) } else { 1.0 };
             {
                 let dtemp = &dtemp;
+                let sponge = &sponge;
                 let fan = &fan;
                 let mut work: Vec<(&mut [[f32; Q]], &mut [[f32; 3]], &mut [f32])> =
                     f.chunks_mut(chunk).zip(u.chunks_mut(chunk)).zip(rho.chunks_mut(chunk)).map(|((a, b), c)| (a, b, c)).collect();
@@ -211,7 +224,8 @@ impl Accelerator for CpuAccelerator {
                             let cell = base + r;
                             let force = [0.0, 0.0, g_lat * dtemp.get(cell).copied().unwrap_or(0.0)];
                             let fv = fan.get(cell).copied().flatten().map(|v| [v[0] * ramp, v[1] * ramp, v[2] * ramp]);
-                            let (vel, dens) = collide(pop, force, tau0, cs2, lambda, fv);
+                            let tau = tau0 + sponge.get(cell).copied().unwrap_or(0.0);
+                            let (vel, dens) = collide(pop, force, tau, cs2, lambda, fv);
                             if let Some(o) = uc.get_mut(r) {
                                 *o = vel;
                             }
@@ -254,6 +268,26 @@ impl Accelerator for CpuAccelerator {
                     fastest = fastest.max(s);
                 }
                 max_speed = f64::from(fastest.sqrt());
+                if std::env::var_os("SOLIDCRAFT_SIM_DEBUG").is_some() {
+                    let (mut best, mut at) = (0.0f32, 0usize);
+                    for (c, v) in u.iter().enumerate() {
+                        let s = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+                        if s > best {
+                            best = s;
+                            at = c;
+                        }
+                    }
+                    let idx = cells.get(at).copied().unwrap_or(0) as usize;
+                    let (i, j, k) = (idx % nx, (idx / nx) % ny, idx / (nx * ny));
+                    let r = rho.get(at).copied().unwrap_or(0.0);
+                    let rmin = rho.iter().copied().fold(f32::INFINITY, f32::min);
+                    let rmax = rho.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                    eprintln!(
+                        "step {step}: max |u| {:.4} at ({i},{j},{k}) rho {r:.4}; rho {rmin:.4}..{rmax:.4}; change {:.2e}",
+                        best.sqrt(),
+                        (num / den.max(1e-30)).sqrt()
+                    );
+                }
                 if !max_speed.is_finite() || !num.is_finite() || !den.is_finite() || max_speed > 0.5 {
                     return Err(SimError::NotConverged(
                         "the airflow solve blew up; try a coarser grid, a lower fan speed or a smaller lattice velocity".into(),

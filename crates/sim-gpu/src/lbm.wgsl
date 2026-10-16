@@ -40,6 +40,8 @@ struct Params {
 @group(0) @binding(3) var<storage, read_write> u: array<vec4<f32>>;
 @group(0) @binding(4) var<storage, read> fans: array<vec4<f32>>;
 @group(0) @binding(5) var<storage, read> dtemp: array<f32>;
+// Extra relaxation time per cell (sponge beside open walls).
+@group(0) @binding(6) var<storage, read> sponge: array<f32>;
 
 fn c_of(a: u32) -> vec3<i32> {
     switch a {
@@ -168,33 +170,48 @@ fn step(@builtin(local_invocation_index) lid: u32, @builtin(workgroup_id) wg: ve
         for (var a = 0u; a < Q; a = a + 1u) {
             eq[a] = feq(a, dens, vel);
         }
-        var tau = params.tau0;
+        let tau0 = params.tau0 + sponge[cell];
+        var tau = tau0;
+        var pxx = 0.0; var pyy = 0.0; var pzz = 0.0; var pxy = 0.0; var pxz = 0.0; var pyz = 0.0;
+        for (var a = 0u; a < Q; a = a + 1u) {
+            let neq = pop[a] - eq[a];
+            let c = vec3<f32>(c_of(a));
+            pxx = pxx + c.x * c.x * neq;
+            pyy = pyy + c.y * c.y * neq;
+            pzz = pzz + c.z * c.z * neq;
+            pxy = pxy + c.x * c.y * neq;
+            pxz = pxz + c.x * c.z * neq;
+            pyz = pyz + c.y * c.z * neq;
+        }
         if params.cs2 > 0.0 {
-            var pxx = 0.0; var pyy = 0.0; var pzz = 0.0; var pxy = 0.0; var pxz = 0.0; var pyz = 0.0;
-            for (var a = 0u; a < Q; a = a + 1u) {
-                let neq = pop[a] - eq[a];
-                let c = vec3<f32>(c_of(a));
-                pxx = pxx + c.x * c.x * neq;
-                pyy = pyy + c.y * c.y * neq;
-                pzz = pzz + c.z * c.z * neq;
-                pxy = pxy + c.x * c.y * neq;
-                pxz = pxz + c.x * c.z * neq;
-                pyz = pyz + c.y * c.z * neq;
-            }
             let q = sqrt(pxx * pxx + pyy * pyy + pzz * pzz + 2.0 * (pxy * pxy + pxz * pxz + pyz * pyz));
-            tau = 0.5 * (params.tau0 + sqrt(params.tau0 * params.tau0 + 18.0 * params.cs2 * q / dens));
+            tau = 0.5 * (tau0 + sqrt(tau0 * tau0 + 18.0 * params.cs2 * q / dens));
         }
         let omega_p = 1.0 / tau;
-        let omega_m = 1.0 / (params.lambda / (tau - 0.5) + 0.5);
-        for (var a = 0u; a < Q; a = a + 1u) {
-            let o = opp(a);
-            let sym = 0.5 * (pop[a] + pop[o]) - 0.5 * (eq[a] + eq[o]);
-            let anti = 0.5 * (pop[a] - pop[o]) - 0.5 * (eq[a] - eq[o]);
-            let c = vec3<f32>(c_of(a));
-            let cu = dot(c, vel);
-            let fterm = (c - vel) * 3.0 + cu * 9.0 * c;
-            let forcing = (1.0 - 0.5 * omega_p) * w_of(a) * dot(fterm, force);
-            post[a] = pop[a] - omega_p * sym - omega_m * anti + forcing;
+        if params.lambda <= 0.0 {
+            // regularized BGK (Latt & Chopard): relax only the second-order Hermite projection
+            let trace = (pxx + pyy + pzz) / 3.0;
+            for (var a = 0u; a < Q; a = a + 1u) {
+                let c = vec3<f32>(c_of(a));
+                let qpi = c.x * c.x * pxx + c.y * c.y * pyy + c.z * c.z * pzz + 2.0 * (c.x * c.y * pxy + c.x * c.z * pxz + c.y * c.z * pyz) - trace;
+                let fneq = w_of(a) * 4.5 * qpi;
+                let cu = dot(c, vel);
+                let fterm = (c - vel) * 3.0 + cu * 9.0 * c;
+                let forcing = (1.0 - 0.5 * omega_p) * w_of(a) * dot(fterm, force);
+                post[a] = eq[a] + (1.0 - omega_p) * fneq + forcing;
+            }
+        } else {
+            let omega_m = 1.0 / (params.lambda / (tau - 0.5) + 0.5);
+            for (var a = 0u; a < Q; a = a + 1u) {
+                let o = opp(a);
+                let sym = 0.5 * (pop[a] + pop[o]) - 0.5 * (eq[a] + eq[o]);
+                let anti = 0.5 * (pop[a] - pop[o]) - 0.5 * (eq[a] - eq[o]);
+                let c = vec3<f32>(c_of(a));
+                let cu = dot(c, vel);
+                let fterm = (c - vel) * 3.0 + cu * 9.0 * c;
+                let forcing = (1.0 - 0.5 * omega_p) * w_of(a) * dot(fterm, force);
+                post[a] = pop[a] - omega_p * sym - omega_m * anti + forcing;
+            }
         }
     }
     u[cell] = vec4<f32>(vel, dens);

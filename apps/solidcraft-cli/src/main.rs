@@ -25,6 +25,7 @@ mod fuzz;
 mod oracle;
 mod recipe;
 mod render;
+mod sim_bench;
 mod spatial;
 
 use std::process::ExitCode;
@@ -67,6 +68,10 @@ const USAGE: &str = "usage:
        lands on: gpu, gpu-software, or the CPU rasterizer (auto with no adapter, or cpu); the policy defaults
        to SOLIDCRAFT_GPU, else auto; exits with an error when hardware or software finds no such adapter)
   solidcraft-cli icon --out icon.png [--size 256] | --out icon.ico
+  solidcraft-cli sim-bench [--cell MM] [--steps N] [--power W] [--cpu] [--json-out FILE]
+      (times a 2U server airflow and heat study on the GPU simulation backend, or the CPU reference
+       with --cpu: 440 × 700 × 88 mm, two CPUs of --power W (default 200) under finned sinks, a fan
+       wall; reports cells, million lattice updates per second, thermal solve time and temperatures)
 ";
 
 fn main() -> ExitCode {
@@ -78,6 +83,7 @@ fn main() -> ExitCode {
         Some("script") => cmd_script(&args[1..]),
         Some("snapshot") => cmd_snapshot(&args[1..]),
         Some("render") => render::run(&args[1..]),
+        Some("sim-bench") => sim_bench::run(&args[1..]),
         Some("exec") => cmd_exec(&args[1..]),
         Some("gpu") => cmd_gpu(&args[1..]),
         Some("commands") => {

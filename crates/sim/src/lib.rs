@@ -31,7 +31,7 @@ pub use backend::{Accelerator, CpuAccelerator, FlowFields, LatticeSetup, Thermal
 pub use flow::{FlowReport, FlowSettings, Units, ZoneFlow};
 pub use grid::{FLUID, Grid, Ijk};
 pub use linsolve::Stencil;
-pub use problem::{Air, Fan, Fluid, Limits, Problem, SolidBody, Thermal, Wall};
+pub use problem::{Air, Fan, Fluid, Limits, MAX_CELLS, Problem, SolidBody, Thermal, Wall};
 pub use results::{BodyReport, Results, Summary};
 pub use sample::{MAX_SEEDS, MAX_STREAMLINE_STEPS, Streamline, StreamlineOptions, fan_seeds};
 pub use thermal::ThermalReport;
