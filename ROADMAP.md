@@ -39,7 +39,9 @@ In scope, in priority order:
 5. A small PLASTIC subset for enclosures, after sheet metal: Boss, Rib, Web, Lip/Groove, Snap Fit.
 
 Deferred until further notice: MESH, FORM (T-splines), SURFACE beyond what solids need (scope proposed in #772), PCB / 3D
-PCB / Package, Render, Animation, Simulation, Manufacture/CAM, Drawings.
+PCB / Package, Render (a first product-preview workspace exists), Animation, Manufacture/CAM, Drawings. SIMULATION has a first
+workspace: voxel thermal (conduction, film convection) and lattice-Boltzmann airflow studies for enclosures and electronics
+(docs/simulation.md).
 
 ## Milestones
 

@@ -142,6 +142,10 @@ rebuild with no errors, replayed here at 2× speed.
   design, or drop it on the window ([docs/step-import.md](docs/step-import.md)); FreeCAD
   `.FCStd` and Rhino `.3dm` solids import the same way through
   [cadmpeg](https://github.com/cadmpeg/cadmpeg) in the desktop app and CLI.
+- **Simulation**: thermal and airflow studies of enclosures and electronics on a voxel grid: heat
+  per body, materials' conductivities, a film coefficient at every surface, open or closed walls,
+  fans and a lattice-Boltzmann airflow that carries the heat; results as a colour map and arrows in
+  the viewport, a summary per body, point probes and VTK export (docs/simulation.md);
 - **Render:** opaque surfaces can use metal fraction, roughness and dielectric IOR in the
   integrated product viewport and CPU preview PNGs. Existing simple colors remain supported.
   Fixed direct lighting is a preview; HDRI, refraction and texture maps are not implemented.

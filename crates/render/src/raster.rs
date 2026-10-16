@@ -89,6 +89,8 @@ pub fn render(scene: &Scene, cam: &Camera, w: usize, h: usize) -> Canvas {
         for (ti, t) in m.triangles.iter().enumerate() {
             let face = m.tri_face.get(ti).copied();
             let base = sm.face_colors.iter().find(|(f, _)| Some(*f) == face).map_or(body, |(_, c)| c.f());
+            // Vertex colours (a simulation field) are interpolated across the triangle.
+            let vc = (sm.vertex_colors.len() == m.positions.len()).then(|| t.map(|k| sm.vertex_colors.get(k as usize).map_or(base, |c| c.f())));
             let wp = t.map(|k| m.positions.get(k as usize).copied().unwrap_or_default());
             // Seen from inside (only where a section cuts the body open).
             let to_eye = if cam.fov > 0.0 { cam.eye() - wp[0] } else { view_dir };
@@ -147,6 +149,10 @@ pub fn render(scene: &Scene, cam: &Camera, w: usize, h: usize) -> Canvas {
                                 _ => f32::INFINITY,
                             };
                         }
+                        let base = match vc {
+                            Some([c0, c1, c2]) => std::array::from_fn(|k| c0[k] * p0 + c1[k] * p1 + c2[k] * p2),
+                            None => base,
+                        };
                         if cut {
                             // The cut: the body's colour tinted toward the cap colour, hatched
                             // at 45 degrees (as the viewport draws it).
@@ -336,7 +342,7 @@ mod tests {
             edge_faces: vec![],
         };
         let scene = Scene {
-            meshes: vec![SceneMesh { mesh: Arc::new(mesh), color: Rgb(200, 30, 30), face_colors: Vec::new() }],
+            meshes: vec![SceneMesh { mesh: Arc::new(mesh), color: Rgb(200, 30, 30), face_colors: Vec::new(), vertex_colors: Vec::new() }],
             lines: vec![],
             background: None,
             radius: 20.0,
@@ -372,7 +378,7 @@ mod tests {
     /// radius `radius`.
     fn close_view(mesh: Mesh, lines: Vec<SceneLine>, radius: f64, fov: f64) -> (Scene, Camera) {
         let scene = Scene {
-            meshes: vec![SceneMesh { mesh: Arc::new(mesh), color: Rgb(160, 165, 175), face_colors: Vec::new() }],
+            meshes: vec![SceneMesh { mesh: Arc::new(mesh), color: Rgb(160, 165, 175), face_colors: Vec::new(), vertex_colors: Vec::new() }],
             lines,
             radius,
             ..Default::default()

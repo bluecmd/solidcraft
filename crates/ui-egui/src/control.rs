@@ -223,15 +223,12 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
     let b = |k: &str| p.get(k).and_then(Value::as_bool).unwrap_or(false);
     match method {
         "ui.workspace" => {
-            if let Some(workspace) = s("workspace") {
-                if !matches!(workspace, "design" | "render") {
-                    return err("workspace must be design or render");
-                }
-                if let Err(e) = crate::render_workspace::enter(app, workspace == "render") {
-                    return err(e);
-                }
+            if let Some(workspace) = s("workspace")
+                && let Err(e) = crate::workspace::switch(app, workspace)
+            {
+                return err(e);
             }
-            ok(json!({"workspace":if crate::render_workspace::active(app) {"render"} else {"design"}}))
+            ok(json!({"workspace": crate::workspace::current(app)}))
         }
         "engine.execute" | "command" => {
             let Some(id) = s("command").or(s("id")) else { return err("missing `command`") };
@@ -329,8 +326,13 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             }
             match (serde_json::from_value::<crate::UiState>(cur), serde_json::from_value::<solidcraft_engine::Visibility>(vis)) {
                 (Ok(u), Ok(v)) => {
-                    if (u.tab == "RENDER") != crate::render_workspace::active(app)
-                        && let Err(e) = crate::render_workspace::enter(app, u.tab == "RENDER")
+                    let wanted = match u.tab.as_str() {
+                        "RENDER" => "render",
+                        "SIMULATION" => "simulation",
+                        _ => "design",
+                    };
+                    if wanted != crate::workspace::current(app)
+                        && let Err(e) = crate::workspace::switch(app, wanted)
                     {
                         return err(e);
                     }

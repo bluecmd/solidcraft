@@ -303,6 +303,8 @@ fn scene_key(app: &SolveApp) -> u64 {
     crate::theme::is_dark().hash(&mut h);
     crate::theme::vision().hash(&mut h);
     app.session.active_sketch.hash(&mut h);
+    app.session.simulation_display.hash(&mut h);
+    app.session.simulation.as_ref().map(|r| std::sync::Arc::as_ptr(r) as usize).hash(&mut h);
     h.finish()
 }
 
@@ -523,6 +525,8 @@ struct BodyDraw {
     face_looks: std::collections::HashMap<usize, solidcraft_engine::doc::appearance::Look>,
     /// Its faces are drawn from its plan on the GPU (only its edges are built here).
     on_gpu: bool,
+    /// A colour per mesh vertex (a simulation's temperatures) instead of the body's colour.
+    heat: Option<std::sync::Arc<Vec<[u8; 4]>>>,
 }
 
 impl BodyDraw {
@@ -531,6 +535,7 @@ impl BodyDraw {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         (std::sync::Arc::as_ptr(&self.mesh) as usize).hash(&mut h);
         (self.col, self.faded, self.opacity.to_bits(), self.on_gpu, shaded, edges, hidden_edges, edge_col, hidden_col).hash(&mut h);
+        self.heat.as_ref().map(|c| std::sync::Arc::as_ptr(c) as usize).hash(&mut h);
         let mut looks: Vec<_> = self.face_looks.iter().map(|(f, l)| (*f, l.color, l.opacity.to_bits())).collect();
         looks.sort_unstable();
         looks.hash(&mut h);
@@ -555,6 +560,7 @@ impl BodyDraw {
             for k in t {
                 let i = *k as usize;
                 if let (Some(p), Some(n)) = (m.positions.get(i), m.normals.get(i)) {
+                    let col = self.heat.as_ref().and_then(|h| h.get(i)).copied().unwrap_or(col);
                     if self.faded {
                         out.trans_tri(p.to_f32(), n.to_f32(), col);
                     } else if glass {
@@ -632,6 +638,11 @@ fn build_scene(app: &SolveApp) -> GpuScene {
     let mut made: std::collections::HashMap<u64, CachedBlock> = std::collections::HashMap::new();
     let mut run: Vec<BodyDraw> = Vec::new();
     let mut run_key = std::collections::hash_map::DefaultHasher::new();
+    // A shown simulation colours the bodies it solved by their surface temperature.
+    let sim = s.simulation.as_ref().filter(|_| s.simulation_display != solidcraft_engine::SimulationDisplay::Off).map(|r| {
+        let (lo, hi) = crate::simulation_workspace::body_range(r);
+        (r.clone(), lo, hi)
+    });
     for b in &st.bodies {
         if !app.session.body_visible(&b.name) || app.preview.replaced.contains(&b.name) {
             continue;
@@ -644,7 +655,11 @@ fn build_scene(app: &SolveApp) -> GpuScene {
         let face_looks: std::collections::HashMap<usize, solidcraft_engine::doc::appearance::Look> =
             if shaded { s.doc.face_colors(b).into_iter().collect() } else { Default::default() };
         let opaque = !faded && opacity >= 0.999 && face_looks.values().all(|l| l.opacity >= 0.999);
-        let planned = drawn_plan(app, b, opaque);
+        let mesh = drawn_mesh(app, b);
+        let heat = sim.as_ref().and_then(|(r, lo, hi)| {
+            r.body_index(&b.name).map(|bi| std::sync::Arc::new(crate::simulation_workspace::vertex_colors(r, bi, &mesh, *lo, *hi)))
+        });
+        let planned = if heat.is_some() { None } else { drawn_plan(app, b, opaque) };
         let on_gpu = planned.is_some();
         if let Some(plan) = planned {
             let face_colors = (0..b.body.face_count())
@@ -655,7 +670,7 @@ fn build_scene(app: &SolveApp) -> GpuScene {
                 .collect();
             sc.planned.push(crate::gpu::PlannedBody { plan, face_colors });
         }
-        let body = BodyDraw { mesh: drawn_mesh(app, b), col, faded, opacity, face_looks, on_gpu };
+        let body = BodyDraw { mesh, col, faded, opacity, face_looks, on_gpu, heat };
         let key = body.key(shaded, edges, hidden_edges, edge_col, hidden_col);
         key.hash(&mut run_key);
         run.push(body);
@@ -684,6 +699,12 @@ fn build_scene(app: &SolveApp) -> GpuScene {
                 sc.line(a.to_f32(), c.to_f32(), col, 1.8, false);
             }
         }
+    }
+    // Airflow: arrows through the air cells of the shown simulation.
+    if let Some((r, _, _)) = &sim
+        && s.simulation_display == solidcraft_engine::SimulationDisplay::Velocity
+    {
+        crate::simulation_workspace::velocity_arrows(&mut sc, r);
     }
     // Continuity analysis: each seam `inspect.continuity` measured, drawn over the model in the
     // colour of its worst verdict.
@@ -2277,6 +2298,7 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
         painter.add(egui_wgpu::Callback::new_paint_callback(rect, cb));
     }
     analysis_legend(app, &painter, rect);
+    crate::simulation_workspace::legend(app, &painter, rect);
     crate::frame_rate::paint(app, ui.ctx(), &painter, rect);
 
     // ---- interaction ----

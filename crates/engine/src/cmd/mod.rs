@@ -59,7 +59,7 @@ mod render;
 #[cfg(test)]
 mod script_tests;
 mod sheet;
-mod simulation;
+pub mod simulation;
 mod sketch;
 pub(crate) use sketch::author_path_for_rebind;
 pub(crate) use sketch::created as sketch_created;

@@ -23,6 +23,9 @@ pub struct SceneMesh {
     pub color: Rgb,
     /// Faces in colours of their own: (B-rep face index, colour).
     pub face_colors: Vec<(u32, Rgb)>,
+    /// A colour per mesh vertex (a simulation's temperatures), interpolated across triangles;
+    /// empty for the body's and faces' colours. Ignored unless it has one entry per vertex.
+    pub vertex_colors: Vec<Rgb>,
 }
 
 pub struct SceneLine {

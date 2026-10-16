@@ -427,9 +427,32 @@ fn build_scene(
         })
         .flatten()
         .collect();
+    // A shown simulation colours the bodies it solved by their surface temperature, and in
+    // airflow mode draws its arrows.
+    let sim = s.simulation.as_ref().filter(|_| s.simulation_display != crate::SimulationDisplay::Off).map(|r| {
+        let (lo, hi) = crate::cmd::simulation::body_range(r);
+        (r, lo, hi)
+    });
+    if let Some((r, _, _)) = &sim
+        && s.simulation_display == crate::SimulationDisplay::Velocity
+    {
+        for seg in crate::cmd::simulation::velocity_arrows(r) {
+            sc.lines.push(SceneLine {
+                points: vec![seg.a, seg.b],
+                color: Rgb(seg.color[0], seg.color[1], seg.color[2]),
+                width: seg.width,
+                on_top: false,
+            });
+        }
+    }
     for body in st.bodies.iter().filter(|b| s.body_visible(&b.name)) {
         let selected = selected_occurrences.contains(&body.name) || s.selection.iter().any(|x| matches!(x, Sel::Body { name } if *name == body.name));
         let mesh = body.mesh();
+        let vertex_colors: Vec<Rgb> = sim
+            .as_ref()
+            .and_then(|(r, lo, hi)| r.body_index(&body.name).map(|bi| crate::cmd::simulation::vertex_colors(r, bi, &mesh, *lo, *hi)))
+            .map(|cs| cs.into_iter().map(|c| Rgb(c[0], c[1], c[2])).collect())
+            .unwrap_or_default();
         // The body's appearance (or imported colour) and faces with looks of their own, as in
         // the viewport.
         let to8 = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -439,7 +462,7 @@ fn build_scene(
         } else {
             s.doc.face_colors(body).into_iter().map(|(f, l)| (f as u32, Rgb(l.color[0], l.color[1], l.color[2]))).collect()
         };
-        sc.meshes.push(SceneMesh { mesh: Arc::clone(&mesh), color, face_colors });
+        sc.meshes.push(SceneMesh { mesh: Arc::clone(&mesh), color, face_colors, vertex_colors });
         for (i, e) in mesh.edges.iter().enumerate() {
             if !mesh.shaded_edge_visible(i) {
                 continue;

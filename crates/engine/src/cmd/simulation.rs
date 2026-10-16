@@ -217,6 +217,125 @@ fn fan_delete(s: &mut Session, params: &Value) -> Result<Value> {
     Ok(json!({"study": request.study, "name": request.name, "deleted": true}))
 }
 
+/// A study prepared for solving: everything `sim.solve` needs, detached from the session so a
+/// UI can solve it off the window thread and hand the run back with `Session::set_simulation`.
+pub struct Prepared {
+    pub study: String,
+    pub revision: u64,
+    pub problem: Problem,
+    /// World body name per body index of the problem.
+    pub bodies: Vec<String>,
+    /// Study body settings that matched no visible body.
+    pub unknown: Vec<String>,
+}
+
+impl Prepared {
+    pub fn solve(self, progress: solidcraft_sim::Progress) -> std::result::Result<SimulationRun, solidcraft_sim::SimError> {
+        let results = solidcraft_sim::solve(&self.problem, progress)?;
+        Ok(SimulationRun { study: self.study, revision: self.revision, results, bodies: self.bodies })
+    }
+}
+
+/// Prepare a study of the design for solving. `flow` overrides the study's airflow setting.
+pub fn prepare(s: &Session, study: &str, flow: Option<bool>) -> Result<Prepared> {
+    let setup = s.doc.simulation.studies.get(study).cloned().ok_or_else(|| bad("sim.solve", "no simulation study with that name"))?;
+    let (problem, bodies, unknown) = problem(s, study, &setup, flow)?;
+    Ok(Prepared { study: study.to_string(), revision: s.revision, problem, bodies, unknown })
+}
+
+impl Session {
+    /// Keep a solved study as the session's simulation (what the viewport shows and `sim.results`
+    /// reports); the display switches on if it was off.
+    pub fn set_simulation(&mut self, run: SimulationRun) {
+        self.simulation = Some(Arc::new(run));
+        if self.simulation_display == SimulationDisplay::Off {
+            self.simulation_display = SimulationDisplay::Temperature;
+        }
+    }
+}
+
+/// Colour for a value in 0..=1: dark blue through cyan, green and yellow to red.
+pub fn heat_color(t: f64) -> [u8; 3] {
+    const STOPS: [[f32; 3]; 5] = [[30.0, 20.0, 110.0], [40.0, 120.0, 230.0], [50.0, 210.0, 150.0], [245.0, 215.0, 40.0], [210.0, 30.0, 25.0]];
+    let t = if t.is_finite() { t.clamp(0.0, 1.0) } else { 0.0 } as f32;
+    let x = t * (STOPS.len() - 1) as f32;
+    let i = (x.floor() as usize).min(STOPS.len() - 2);
+    let f = x - i as f32;
+    let (a, b) = (STOPS[i], STOPS[i + 1]);
+    [(a[0] + (b[0] - a[0]) * f) as u8, (a[1] + (b[1] - a[1]) * f) as u8, (a[2] + (b[2] - a[2]) * f) as u8]
+}
+
+/// The temperature range the colour map spans: the bodies' surfaces.
+pub fn body_range(run: &SimulationRun) -> (f64, f64) {
+    let s = &run.results.summary;
+    let lo = s.bodies.iter().map(|b| b.min_c).filter(|t| t.is_finite()).fold(f64::INFINITY, f64::min);
+    let hi = s.bodies.iter().map(|b| b.max_c).filter(|t| t.is_finite()).fold(f64::NEG_INFINITY, f64::max);
+    if !lo.is_finite() || !hi.is_finite() {
+        return (s.ambient_c, s.ambient_c + 1.0);
+    }
+    if hi - lo < 0.1 { (lo, lo + 0.1) } else { (lo, hi) }
+}
+
+/// Per-vertex colours of a body's mesh from the solved surface temperatures.
+pub fn vertex_colors(run: &SimulationRun, body: u32, mesh: &solidcraft_geom::Mesh, lo: f64, hi: f64) -> Vec<[u8; 3]> {
+    let span = (hi - lo).max(1e-9);
+    mesh.positions
+        .iter()
+        .map(|p| match run.results.surface_temperature(body, *p) {
+            Some(t) => heat_color((t - lo) / span),
+            None => [120, 120, 120],
+        })
+        .collect()
+}
+
+/// One air-velocity arrow piece: a dim shaft or a bright tip, as a line segment.
+pub struct ArrowSegment {
+    pub a: Vec3,
+    pub b: Vec3,
+    pub color: [u8; 3],
+    pub width: f64,
+}
+
+/// Air velocity arrows: a thinned sample of the air cells, each a line along its velocity,
+/// coloured and lengthened by speed.
+pub fn velocity_arrows(run: &SimulationRun) -> Vec<ArrowSegment> {
+    let mut out = Vec::new();
+    let r = &run.results;
+    let Some(flow) = &r.flow else { return out };
+    let max = r.summary.flow.as_ref().map_or(0.0, |f| f.max_speed_m_s);
+    if !(max > 0.0) {
+        return out;
+    }
+    let cells = r.grid.len() as f64;
+    let stride = ((cells / 20_000.0).cbrt().ceil() as usize).max(1);
+    let scale = r.grid.cell * stride as f64;
+    for k in (0..r.grid.nz).step_by(stride) {
+        for j in (0..r.grid.ny).step_by(stride) {
+            for i in (0..r.grid.nx).step_by(stride) {
+                let idx = r.grid.index([i, j, k]);
+                if r.voxels.label.get(idx) != Some(&solidcraft_sim::FLUID) {
+                    continue;
+                }
+                let Some(v) = flow.velocity.get(idx) else { continue };
+                let v = Vec3::new(f64::from(v[0]), f64::from(v[1]), f64::from(v[2]));
+                let speed = v.len();
+                if speed < 0.03 * max {
+                    continue;
+                }
+                let f = speed / max;
+                let p0 = r.grid.centre([i, j, k]);
+                let dir = v * (1.0 / speed);
+                let len = scale * (0.25 + 0.7 * f);
+                let mid = p0 + dir * (len * 0.65);
+                let c = heat_color(f);
+                out.push(ArrowSegment { a: p0, b: mid, color: [c[0] / 2 + 40, c[1] / 2 + 40, c[2] / 2 + 40], width: 1.2 });
+                out.push(ArrowSegment { a: mid, b: p0 + dir * len, color: c, width: 2.4 });
+            }
+        }
+    }
+    out
+}
+
 /// The study as a solver problem over the visible bodies, and the world body name per index.
 pub(crate) fn problem(s: &Session, name: &str, study: &Study, flow_override: Option<bool>) -> Result<(Problem, Vec<String>, Vec<String>)> {
     let cmd = "sim.solve";
@@ -312,20 +431,17 @@ fn summary_json(run: &SimulationRun, stale: bool) -> Value {
 fn solve(s: &mut Session, params: &Value) -> Result<Value> {
     let cmd = "sim.solve";
     let request: Solve = serde_json::from_value(params.clone()).map_err(|e| bad(cmd, e.to_string()))?;
-    let study = s.doc.simulation.studies.get(&request.study).cloned().ok_or_else(|| bad(cmd, "no simulation study with that name"))?;
-    let (problem, bodies, unknown) = problem(s, &request.study, &study, request.flow)?;
+    let prepared = prepare(s, &request.study, request.flow)?;
+    let unknown = prepared.unknown.clone();
+    let domain = prepared.problem.domain;
     let mut go = |_: &str, _: usize, _: usize| true;
-    let results = solidcraft_sim::solve(&problem, &mut go).map_err(|e| bad(cmd, e.to_string()))?;
-    let run = Arc::new(SimulationRun { study: request.study, revision: s.revision, results, bodies });
+    let run = prepared.solve(&mut go).map_err(|e| bad(cmd, e.to_string()))?;
     let mut reply = summary_json(&run, false);
     if let Some(o) = reply.as_object_mut() {
         o.insert("unknown_bodies".into(), json!(unknown));
-        o.insert("domain".into(), json!({"min": problem.domain.min, "max": problem.domain.max}));
+        o.insert("domain".into(), json!({"min": domain.min, "max": domain.max}));
     }
-    s.simulation = Some(run);
-    if s.simulation_display == SimulationDisplay::Off {
-        s.simulation_display = SimulationDisplay::Temperature;
-    }
+    s.set_simulation(run);
     Ok(reply)
 }
 

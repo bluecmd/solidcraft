@@ -313,12 +313,14 @@ pub fn scene_geometry(scene: &Scene) -> GpuScene {
     for m in &scene.meshes {
         let faces: HashMap<u32, Rgb> = m.face_colors.iter().copied().collect();
         let mesh = &m.mesh;
+        let per_vertex = m.vertex_colors.len() == mesh.positions.len();
         for (ti, t) in mesh.triangles.iter().enumerate() {
             let col = c4(mesh.tri_face.get(ti).and_then(|f| faces.get(f)).copied().unwrap_or(m.color));
             let [Some(a), Some(b), Some(c)] = t.map(|k| mesh.positions.get(k as usize).copied()) else { continue };
             let flat = (b - a).cross(c - a).normalized().unwrap_or(Vec3::Z);
             for (k, p) in t.iter().zip([a, b, c]) {
                 let n = mesh.normals.get(*k as usize).copied().filter(|n| n.is_finite() && n.len() > 0.5).unwrap_or(flat);
+                let col = if per_vertex { m.vertex_colors.get(*k as usize).map_or(col, |c| c4(*c)) } else { col };
                 sc.tri(p.to_f32(), n.to_f32(), col);
             }
         }

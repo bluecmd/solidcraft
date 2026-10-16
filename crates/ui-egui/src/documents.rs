@@ -28,6 +28,7 @@ pub struct DocSlot {
 #[derive(Clone, Debug, Default)]
 struct DocView {
     render: crate::render_workspace::ViewState,
+    simulation: crate::simulation_workspace::ViewState,
     sketch_choices: crate::sketch_families::Choices,
     hidden_profiles: Vec<u64>,
     shown_dims: Vec<u64>,
@@ -66,6 +67,7 @@ fn take_view(app: &mut SolveApp) -> DocView {
     let u = &mut app.ui;
     DocView {
         render: std::mem::take(&mut app.render_workspace.view),
+        simulation: std::mem::take(&mut app.simulation_workspace.view),
         sketch_choices: std::mem::take(&mut app.sketch_choices),
         hidden_profiles: std::mem::take(&mut u.hidden_profiles),
         shown_dims: std::mem::take(&mut u.shown_dims),
@@ -75,6 +77,7 @@ fn take_view(app: &mut SolveApp) -> DocView {
 
 fn put_view(app: &mut SolveApp, v: DocView) {
     app.render_workspace.view = v.render;
+    app.simulation_workspace.view = v.simulation;
     crate::render_workspace::invalidate_scene(app);
     crate::render_workspace::sync_backend(app);
     app.sketch_choices = v.sketch_choices;
@@ -89,6 +92,10 @@ fn swap_in(app: &mut SolveApp, slot: DocSlot) -> DocSlot {
     if crate::render_workspace::active(app) {
         let _ = crate::render_workspace::enter(app, false);
     }
+    if crate::simulation_workspace::active(app) {
+        let _ = crate::simulation_workspace::enter(app, false);
+    }
+    app.simulation_workspace.worker = None;
     // Whatever was going on in the design leaves with it.
     crate::sketch_text_move::cancel_drag(app);
     crate::dialogs::cancel(app);
@@ -171,6 +178,7 @@ pub fn adopt(app: &mut SolveApp, session: Session) {
         crate::sketch_attachment_ui::clear(app);
         app.session.replace_design(session);
         crate::render_workspace::reset_document(app);
+        crate::simulation_workspace::reset_document(app);
         app.sketch_choices = crate::sketch_families::Choices::default();
         app.session.invalidate_view(rev);
         app.cam = Camera::default();

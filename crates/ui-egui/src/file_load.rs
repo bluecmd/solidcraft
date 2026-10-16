@@ -542,7 +542,7 @@ fn partial_picture(world: &solidcraft_engine::doc::ModelState, stop: &dyn Fn() -
             return None;
         }
         bounds = bounds.union(&mesh.bounds());
-        scene.meshes.push(SceneMesh { mesh, color: Rgb(176, 186, 199), face_colors: Vec::new() });
+        scene.meshes.push(SceneMesh { mesh, color: Rgb(176, 186, 199), face_colors: Vec::new(), vertex_colors: Vec::new() });
     }
     if bounds.is_empty() {
         return None;
@@ -588,7 +588,7 @@ fn saved_picture(preview: solidcraft_engine::io::DesignPreview) -> Option<egui::
         }
         bounds = bounds.union(&mesh.bounds());
         let [r, g, b] = cached.color.unwrap_or([0.69, 0.73, 0.78]).map(|c| (c * 255.0).round() as u8);
-        scene.meshes.push(SceneMesh { mesh: Arc::new(mesh), color: Rgb(r, g, b), face_colors: Vec::new() });
+        scene.meshes.push(SceneMesh { mesh: Arc::new(mesh), color: Rgb(r, g, b), face_colors: Vec::new(), vertex_colors: Vec::new() });
     }
     if bounds.is_empty() {
         return None;

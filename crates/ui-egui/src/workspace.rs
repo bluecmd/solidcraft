@@ -4,6 +4,7 @@
 //! or Joint appear on several tabs. Commands registered on such a panel but not listed follow at
 //! the end.
 
+use crate::SolveApp;
 use solidcraft_engine::CommandSpec;
 use solidcraft_engine::doc::FeatureKind;
 
@@ -156,6 +157,42 @@ pub fn feature_icon(k: &FeatureKind) -> Option<&'static str> {
         FeatureKind::Rib { .. } => "rib",
         _ => return None,
     })
+}
+
+/// The workspace the app is in: `design`, `render` or `simulation`.
+pub fn current(app: &SolveApp) -> &'static str {
+    if crate::render_workspace::active(app) {
+        "render"
+    } else if crate::simulation_workspace::active(app) {
+        "simulation"
+    } else {
+        "design"
+    }
+}
+
+/// The workspace switcher's label (a toolbar tab name, translated by the caller).
+pub fn current_label(app: &SolveApp) -> &'static str {
+    match current(app) {
+        "render" => "RENDER",
+        "simulation" => "SIMULATION",
+        _ => crate::toolbar_custom::WORKSPACE,
+    }
+}
+
+/// Switch workspaces by name; leaving one restores the Design workspace first.
+pub fn switch(app: &mut SolveApp, workspace: &str) -> Result<(), String> {
+    match workspace {
+        "design" => {
+            crate::render_workspace::enter(app, false)?;
+            crate::simulation_workspace::enter(app, false)
+        }
+        "render" => {
+            crate::simulation_workspace::enter(app, false)?;
+            crate::render_workspace::enter(app, true)
+        }
+        "simulation" => crate::simulation_workspace::enter(app, true),
+        _ => Err("workspace must be design, render or simulation".into()),
+    }
 }
 
 #[cfg(test)]

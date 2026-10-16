@@ -58,6 +58,7 @@ pub fn panels(tab: &str) -> &'static [&'static str] {
         "SHEET METAL" => &["CREATE", "MODIFY", "ASSEMBLE", "CONSTRUCT", "INSPECT", "INSERT", "SELECT"],
         "PLASTIC" => &["CREATE", "MODIFY", "ASSEMBLE", "CONSTRUCT", "INSPECT", "INSERT", "SELECT"],
         "RENDER" => &["SCENE"],
+        "SIMULATION" => &["SETUP", "SOLVE", "RESULTS"],
         _ => &["MAKE", "ADD-INS", "UTILITY", "INSPECT", "SELECT"],
     }
 }
@@ -601,7 +602,7 @@ pub fn toolbar(app: &mut SolveApp, ui: &mut egui::Ui) {
         painter.text(
             pos2(ws.center().x - 5.0, ws.top() + 52.0),
             Align2::CENTER_CENTER,
-            app.tr_label(if crate::render_workspace::active(app) { "RENDER" } else { crate::toolbar_custom::WORKSPACE }),
+            app.tr_label(crate::workspace::current_label(app)),
             FontId::proportional(12.0),
             t.text,
         );
@@ -619,6 +620,8 @@ pub fn toolbar(app: &mut SolveApp, ui: &mut egui::Ui) {
         }
         if crate::render_workspace::active(app) {
             tabs.push("RENDER");
+        } else if crate::simulation_workspace::active(app) {
+            tabs.push("SIMULATION");
         } else {
             tabs.extend(TABS.iter());
         }

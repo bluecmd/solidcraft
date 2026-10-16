@@ -130,6 +130,7 @@ pub mod selection;
 #[cfg(test)]
 mod shell_face_sketch_ui_tests;
 pub mod shortcut_box;
+pub mod simulation_workspace;
 pub mod sketch3d;
 #[cfg(test)]
 mod sketch3d_frame_ui_tests;
@@ -287,6 +288,7 @@ pub struct SolveApp {
     file_picker: Option<file_picker::Pending>,
     pub viewport: viewport::ViewportState,
     pub render_workspace: render_workspace::State,
+    pub simulation_workspace: simulation_workspace::State,
     pub tool: Option<tools::Tool>,
     pub dialog: Option<dialogs::Dialog>,
     /// The Change Parameters window, when open.
@@ -420,6 +422,7 @@ impl SolveApp {
             file_picker: None,
             viewport: viewport::ViewportState::default(),
             render_workspace,
+            simulation_workspace: Default::default(),
             tool: None,
             dialog: None,
             params: None,
@@ -656,6 +659,7 @@ impl SolveApp {
                 }
                 if matches!(id, "file.new" | "doc.open" | "doc.recover") {
                     render_workspace::reset_document(self);
+                    simulation_workspace::reset_document(self);
                     self.sketch_choices = sketch_families::Choices::default();
                     dim_view::cancel();
                     self.menu.props = None;
@@ -712,6 +716,11 @@ impl SolveApp {
         if id == "material.properties.validate" {
             self.material_card_review = Some(material_card_review::ReviewWindow::default());
             self.home.open = false;
+            return;
+        }
+        // Simulation commands open the Simulation workspace (its panel edits the study).
+        if id.starts_with("sim.") {
+            simulation_workspace::start(self, id);
             return;
         }
         // Another command ends Edit Text (its dialog is not a feature edit to keep).
@@ -1224,6 +1233,7 @@ impl SolveApp {
         file_picker::tick(self, ctx);
         render_workspace::sync_backend(self);
         render_workspace::tick(self, ctx);
+        simulation_workspace::tick(self, ctx);
         file_load::tick(self, ctx);
         self.esc_handled = false;
         prefs::apply(self, ctx);
@@ -1369,6 +1379,9 @@ impl SolveApp {
         }
         if render_workspace::active(self) {
             render_workspace::panel(self, ui);
+        }
+        if simulation_workspace::active(self) {
+            simulation_workspace::panel(self, ui);
         }
         agent_chat::show(self, ui);
         preview::update(self, ui.ctx());
