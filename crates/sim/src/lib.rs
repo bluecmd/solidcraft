@@ -19,6 +19,7 @@ mod flow;
 mod grid;
 pub mod lattice;
 mod linsolve;
+pub mod multigrid;
 mod problem;
 mod results;
 mod sample;
@@ -31,6 +32,7 @@ pub use backend::{Accelerator, CpuAccelerator, FlowFields, LatticeSetup, Thermal
 pub use flow::{FlowReport, FlowSettings, Units, ZoneFlow};
 pub use grid::{FLUID, Grid, Ijk};
 pub use linsolve::Stencil;
+pub use multigrid::Multigrid;
 pub use problem::{Air, Fan, Fluid, Limits, MAX_CELLS, Problem, SolidBody, Thermal, Wall};
 pub use results::{BodyReport, Results, Summary};
 pub use sample::{MAX_SEEDS, MAX_STREAMLINE_STEPS, Streamline, StreamlineOptions, fan_seeds};

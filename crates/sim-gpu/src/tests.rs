@@ -1,7 +1,7 @@
 //! The GPU kernels against the CPU reference on the same problems (skipped without an adapter).
 
 use solidcraft_geom::{Aabb3, Vec3};
-use solidcraft_sim::{Air, CpuAccelerator, Fan, FlowSettings, Limits, Problem, SolidBody, Thermal, Wall, solve_with};
+use solidcraft_sim::{Accelerator, Air, CpuAccelerator, Fan, FlowSettings, Limits, Problem, SolidBody, Thermal, ThermalSystem, Wall, solve_with};
 
 use super::GpuAccelerator;
 
@@ -275,5 +275,91 @@ fn print_adapter_limits() {
         l.max_buffer_size >> 20,
         l.max_storage_buffer_binding_size >> 20,
         l.max_storage_buffers_per_shader_stage
+    );
+}
+
+/// Iterating far past convergence (a tolerance nothing reaches) drives BiCGSTAB into breakdown:
+/// the recurrence scalars collapse and round-off takes over. The resident solver must restart
+/// and hand back its best iterate, never a diverged one.
+#[test]
+fn iterating_past_convergence_never_returns_garbage() {
+    use solidcraft_sim::{Accelerator, Stencil, ThermalSystem};
+    let Some(gpu) = gpu() else { return };
+    let (nx, ny, nz) = (40usize, 30usize, 20usize);
+    let n = nx * ny * nz;
+    let mut diag = vec![0.0f64; n];
+    let mut off = vec![[0.0f64; 6]; n];
+    for idx in 0..n {
+        let (i, j, k) = (idx % nx, (idx / nx) % ny, idx / (nx * ny));
+        let has = [i > 0, i + 1 < nx, j > 0, j + 1 < ny, k > 0, k + 1 < nz];
+        // conduction plus an upwind advection along +x (one-sided, like moving air)
+        for (side, h) in has.iter().enumerate() {
+            if *h {
+                let mut g = 1.0;
+                if side == 0 {
+                    g += 2.0;
+                }
+                off[idx][side] = -g;
+                diag[idx] += if side == 1 { 1.0 + 2.0 } else { 1.0 };
+            }
+        }
+        diag[idx] += 1e-3;
+    }
+    let rhs: Vec<f64> = (0..n).map(|i| if i % 97 == 0 { 1.0 } else { 0.0 }).collect();
+    for symmetric in [false, true] {
+        let mut sys = ThermalSystem {
+            stencil: Stencil { nx, ny, diag: diag.clone(), off: off.clone() },
+            rhs: rhs.clone(),
+            symmetric,
+            tolerance: 1e-30,
+            max_iterations: 3000,
+        };
+        if symmetric {
+            // the symmetric variant: conduction only
+            for (idx, o) in sys.stencil.off.iter_mut().enumerate() {
+                let total: f64 = o.iter().map(|v| -v).sum();
+                for v in o.iter_mut() {
+                    if *v != 0.0 {
+                        *v = -1.0;
+                    }
+                }
+                sys.stencil.diag[idx] = o.iter().map(|v| -v).sum::<f64>() + 1e-3;
+                let _ = total;
+            }
+        }
+        let dev = gpu.thermal(&sys, &mut go()).unwrap();
+        assert!(dev.x.iter().all(|v| v.is_finite()), "{}: finite", dev.method);
+        assert!(dev.residual < 1e-8, "{}: best residual {}", dev.method, dev.residual);
+        let mut ax = vec![0.0; n];
+        sys.stencil.apply(&dev.x, &mut ax);
+        let res = ax.iter().zip(&rhs).map(|(a, b)| (a - b) * (a - b)).sum::<f64>().sqrt() / rhs.iter().map(|b| b * b).sum::<f64>().sqrt();
+        assert!(res < 1e-6, "{}: true residual {res}", dev.method);
+    }
+}
+
+/// The GPU solver on a system `sim-bench --dump-thermal` wrote: the path in
+/// `SOLIDCRAFT_THERMAL_DUMP`, residuals traced with `SOLIDCRAFT_SIM_DEBUG`.
+#[test]
+#[ignore]
+fn dumped_system_on_the_gpu() {
+    let Some(path) = std::env::var_os("SOLIDCRAFT_THERMAL_DUMP") else { return };
+    let bytes = std::fs::read(path).expect("read the dump");
+    let system = ThermalSystem::from_bytes(&bytes, 1e-8, 20_000).expect("parse the dump");
+    let gpu = GpuAccelerator::headless().expect("a GPU");
+    let started = std::time::Instant::now();
+    let solved = gpu.thermal(&system, &mut |_, _, _| true).expect("solve");
+    let mut ax = vec![0.0; system.rhs.len()];
+    system.stencil.apply(&solved.x, &mut ax);
+    let bnorm = system.rhs.iter().map(|v| v * v).sum::<f64>().sqrt();
+    let true_res = system.rhs.iter().zip(&ax).map(|(b, a)| (b - a) * (b - a)).sum::<f64>().sqrt() / bnorm;
+    let hottest = solved.x.iter().cloned().fold(f64::MIN, f64::max);
+    eprintln!(
+        "{} {}: {} iterations, converged {}, residual {:.3e}, true residual {true_res:.3e}, hottest {hottest:.2} K above ambient, {:.1} s",
+        gpu.name(),
+        solved.method,
+        solved.iterations,
+        solved.converged,
+        solved.residual,
+        started.elapsed().as_secs_f64()
     );
 }

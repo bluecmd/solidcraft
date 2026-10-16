@@ -553,7 +553,7 @@ impl GpuAccelerator {
 
         if let Some(pipes) = &self.pipelines.solve64 {
             // Doubles on the device: the CPU algorithm as it is, one pass, resident on the GPU.
-            self.check_size(6 * 8 * n as u64, "the thermal stencil")?;
+            self.check_size(8 * n as u64, "the thermal vectors")?;
             let invdiag: Vec<f64> = st.diag.iter().map(|d| if d.abs() > 0.0 { 1.0 / d } else { 0.0 }).collect();
             let k = krylov::Krylov::new(&self.device, &self.queue, pipes, st.nx, st.ny, &st.diag, &side_major(None), &invdiag, gx, gy)?;
             let scaled: Vec<f64> = system.rhs.iter().map(|v| v / bnorm_true).collect();
@@ -577,7 +577,7 @@ impl GpuAccelerator {
         // solves for a correction to the f64 solution held here, and the true residual `b - A x`
         // is formed in f64 for the next pass.
         let pipes = &self.pipelines.solve32;
-        self.check_size(6 * 4 * n as u64, "the thermal stencil")?;
+        self.check_size(4 * n as u64, "the thermal vectors")?;
         let scale: Vec<f64> = st.diag.iter().map(|d| if d.abs() > 0.0 { 1.0 / d.abs().sqrt() } else { 1.0 }).collect();
         let diag: Vec<f64> = st.diag.iter().zip(&scale).map(|(d, s)| d * s * s).collect();
         let k = krylov::Krylov::new(&self.device, &self.queue, pipes, st.nx, st.ny, &diag, &side_major(Some(&scale)), &vec![1.0; n], gx, gy)?;

@@ -420,3 +420,114 @@ fn an_unbaffled_fan_wall_stays_stable() {
     }
     assert!(sum / n as f64 > 0.3, "net flow to the back: {}", sum / n as f64);
 }
+
+/// Solver experiments on a system `sim-bench --dump-thermal` wrote: the path in
+/// `SOLIDCRAFT_THERMAL_DUMP`, residuals traced with `SOLIDCRAFT_SIM_DEBUG`.
+#[test]
+#[ignore]
+fn dumped_system_on_the_cpu() {
+    let Some(path) = std::env::var_os("SOLIDCRAFT_THERMAL_DUMP") else { return };
+    let bytes = std::fs::read(path).expect("read the dump");
+    let system = ThermalSystem::from_bytes(&bytes, 1e-8, 20_000).expect("parse the dump");
+    let started = std::time::Instant::now();
+    let solved = CpuAccelerator.thermal(&system, &mut |_, _, _| true).expect("solve");
+    let mut ax = vec![0.0; system.rhs.len()];
+    system.stencil.apply(&solved.x, &mut ax);
+    let bnorm = system.rhs.iter().map(|v| v * v).sum::<f64>().sqrt();
+    let true_res = system.rhs.iter().zip(&ax).map(|(b, a)| (b - a) * (b - a)).sum::<f64>().sqrt() / bnorm;
+    let hottest = solved.x.iter().cloned().fold(f64::MIN, f64::max);
+    eprintln!(
+        "cpu {}: {} iterations, converged {}, residual {:.3e}, true residual {true_res:.3e}, hottest {hottest:.2} K above ambient, {:.1} s",
+        solved.method,
+        solved.iterations,
+        solved.converged,
+        solved.residual,
+        started.elapsed().as_secs_f64()
+    );
+}
+
+/// A box of unit conductances, open (held at ambient) on its z = 0 face, with upwind advection
+/// of `speed` along +x: an M-matrix with zero column sums inside, like the thermal system.
+fn box_stencil(nx: usize, ny: usize, nz: usize, speed: f64) -> Stencil {
+    let n = nx * ny * nz;
+    let mut diag = vec![0.0; n];
+    let mut off = vec![[0.0; 6]; n];
+    for idx in 0..n {
+        let (i, j, k) = (idx % nx, (idx / nx) % ny, idx / (nx * ny));
+        let has = [i > 0, i + 1 < nx, j > 0, j + 1 < ny, k > 0, k + 1 < nz];
+        let mut d = 0.0;
+        for side in 0..6 {
+            if has[side] {
+                let (out_flux, in_flux) = match side {
+                    0 => (0.0, speed),
+                    1 => (speed, 0.0),
+                    _ => (0.0, 0.0),
+                };
+                d += 1.0 + out_flux;
+                off[idx][side] = -(1.0 + in_flux);
+            }
+        }
+        if k == 0 {
+            d += 1.0;
+        }
+        if i + 1 == nx {
+            d += speed;
+        }
+        diag[idx] = d;
+    }
+    Stencil { nx, ny, diag, off }
+}
+
+fn true_residual(a: &Stencil, b: &[f64], x: &[f64]) -> f64 {
+    let mut ax = vec![0.0; b.len()];
+    a.apply(x, &mut ax);
+    let r: f64 = b.iter().zip(&ax).map(|(bi, ai)| (bi - ai) * (bi - ai)).sum::<f64>().sqrt();
+    r / b.iter().map(|v| v * v).sum::<f64>().sqrt()
+}
+
+#[test]
+fn multigrid_is_symmetric_and_far_stronger_than_jacobi() {
+    let a = box_stencil(33, 29, 25, 0.0);
+    let n = a.len();
+    let b: Vec<f64> = (0..n).map(|i| if i % 7 == 0 { 1.0 } else { 0.0 }).collect();
+    let mg = Multigrid::new(&a);
+    assert!(mg.levels() >= 3, "{} levels", mg.levels());
+    // symmetric: <V r1, r2> = <r1, V r2>
+    let mut work = mg.work();
+    let r1: Vec<f64> = (0..n).map(|i| ((i * 31) % 17) as f64 - 8.0).collect();
+    let r2: Vec<f64> = (0..n).map(|i| ((i * 13) % 11) as f64 - 5.0).collect();
+    let (mut v1, mut v2) = (vec![0.0; n], vec![0.0; n]);
+    mg.apply(&r1, &mut v1, &mut work);
+    mg.apply(&r2, &mut v2, &mut work);
+    let lhs: f64 = v1.iter().zip(&r2).map(|(x, y)| x * y).sum();
+    let rhs: f64 = r1.iter().zip(&v2).map(|(x, y)| x * y).sum();
+    assert!((lhs - rhs).abs() <= 1e-9 * lhs.abs().max(rhs.abs()), "{lhs} vs {rhs}");
+    // and a much better preconditioner
+    let mut watch = |_: usize, _: f64| true;
+    let mut x_j = vec![0.0; n];
+    let mut jac = crate::linsolve::jacobi(&a);
+    let jacobi = crate::linsolve::conjugate_gradient(&a, &b, &mut x_j, 1e-9, 5000, &mut jac, &mut watch);
+    let mut x_m = vec![0.0; n];
+    let mut pre = |r: &[f64], z: &mut [f64]| mg.apply(r, z, &mut work);
+    let multigrid = crate::linsolve::conjugate_gradient(&a, &b, &mut x_m, 1e-9, 5000, &mut pre, &mut watch);
+    assert!(jacobi.converged && multigrid.converged, "{jacobi:?} {multigrid:?}");
+    assert!(true_residual(&a, &b, &x_m) < 1e-8);
+    assert!(multigrid.iterations * 4 < jacobi.iterations, "multigrid {} vs jacobi {} iterations", multigrid.iterations, jacobi.iterations);
+}
+
+#[test]
+fn multigrid_bicgstab_solves_a_strongly_one_sided_system() {
+    let a = box_stencil(24, 20, 18, 50.0);
+    assert!(!a.is_symmetric());
+    let n = a.len();
+    let b: Vec<f64> = (0..n).map(|i| if i % 5 == 0 { 1.0 } else { 0.0 }).collect();
+    let mg = Multigrid::new(&a);
+    let mut work = mg.work();
+    let mut watch = |_: usize, _: f64| true;
+    let mut x = vec![0.0; n];
+    let mut pre = |r: &[f64], z: &mut [f64]| mg.apply(r, z, &mut work);
+    let report = crate::linsolve::bicgstab(&a, &b, &mut x, 1e-9, 500, &mut pre, &mut watch);
+    assert!(report.converged, "{report:?}");
+    assert!(report.iterations < 100, "{} iterations", report.iterations);
+    assert!(true_residual(&a, &b, &x) < 1e-8);
+}

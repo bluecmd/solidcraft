@@ -4,6 +4,7 @@
 
 use crate::lattice::{C, OPP, Q, collide, equilibrium};
 use crate::linsolve::{Stencil, bicgstab, conjugate_gradient};
+use crate::multigrid::Multigrid;
 use crate::{Progress, Result, SimError, par_chunks_mut};
 
 /// Cell kinds in [`LatticeSetup::flags`] (low byte); a fan cell carries its fan index in the
@@ -100,6 +101,41 @@ pub struct ThermalSystem {
     pub symmetric: bool,
     pub tolerance: f64,
     pub max_iterations: usize,
+}
+
+impl ThermalSystem {
+    /// The system as bytes, for saving: little-endian `nx, ny, n, symmetric` as u64, then
+    /// `diag[n]`, `off[n][6]`, `rhs[n]` as f64 (tolerance and the cap are not part of it).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let st = &self.stencil;
+        let mut bytes: Vec<u8> = Vec::with_capacity(32 + 8 * 8 * st.len());
+        for v in [st.nx as u64, st.ny as u64, st.len() as u64, u64::from(self.symmetric)] {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        bytes.extend(st.diag.iter().flat_map(|v| v.to_le_bytes()));
+        bytes.extend(st.off.iter().flatten().flat_map(|v| v.to_le_bytes()));
+        bytes.extend(self.rhs.iter().flat_map(|v| v.to_le_bytes()));
+        bytes
+    }
+
+    /// A system `to_bytes` wrote, with the given tolerance and iteration cap.
+    pub fn from_bytes(bytes: &[u8], tolerance: f64, max_iterations: usize) -> Result<ThermalSystem> {
+        let bad = || SimError::Invalid("not a thermal system dump".into());
+        let (head, body) = bytes.split_at_checked(32).ok_or_else(bad)?;
+        let word = |k: usize| -> Result<usize> {
+            let b = head.get(8 * k..8 * k + 8).ok_or_else(bad)?;
+            usize::try_from(u64::from_le_bytes(b.try_into().map_err(|_| bad())?)).map_err(|_| bad())
+        };
+        let (nx, ny, n, symmetric) = (word(0)?, word(1)?, word(2)?, word(3)? != 0);
+        if body.len() != 8 * 8 * n || n == 0 || nx == 0 || ny == 0 {
+            return Err(bad());
+        }
+        let floats: Vec<f64> = body.as_chunks::<8>().0.iter().map(|b| f64::from_le_bytes(*b)).collect();
+        let (diag, rest) = floats.split_at_checked(n).ok_or_else(bad)?;
+        let (off, rhs) = rest.split_at_checked(6 * n).ok_or_else(bad)?;
+        let off: Vec<[f64; 6]> = off.as_chunks::<6>().0.to_vec();
+        Ok(ThermalSystem { stencil: Stencil { nx, ny, diag: diag.to_vec(), off }, rhs: rhs.to_vec(), symmetric, tolerance, max_iterations })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -329,7 +365,17 @@ impl Accelerator for CpuAccelerator {
         let mut x = vec![0.0; n];
         let total = system.max_iterations;
         let mut cancelled = false;
-        let mut watch = |it: usize, _res: f64| -> bool {
+        let trace = std::env::var_os("SOLIDCRAFT_SIM_DEBUG").is_some();
+        let mg = Multigrid::new(&system.stencil);
+        let mut work = mg.work();
+        if trace {
+            eprintln!("  multigrid: {} levels", mg.levels());
+        }
+        let mut precond = |r: &[f64], z: &mut [f64]| mg.apply(r, z, &mut work);
+        let mut watch = |it: usize, res: f64| -> bool {
+            if trace {
+                eprintln!("  krylov {it}: residual {res:.3e}");
+            }
             let go = progress("thermal", it, total);
             if !go {
                 cancelled = true;
@@ -337,9 +383,9 @@ impl Accelerator for CpuAccelerator {
             go
         };
         let report = if system.symmetric {
-            conjugate_gradient(&system.stencil, &system.rhs, &mut x, system.tolerance, total, &mut watch)
+            conjugate_gradient(&system.stencil, &system.rhs, &mut x, system.tolerance, total, &mut precond, &mut watch)
         } else {
-            bicgstab(&system.stencil, &system.rhs, &mut x, system.tolerance, total, &mut watch)
+            bicgstab(&system.stencil, &system.rhs, &mut x, system.tolerance, total, &mut precond, &mut watch)
         };
         if cancelled {
             return Err(SimError::Cancelled);

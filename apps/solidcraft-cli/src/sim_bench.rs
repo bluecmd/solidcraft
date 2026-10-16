@@ -7,7 +7,10 @@ use std::sync::Arc;
 
 use serde_json::json;
 use solidcraft_engine::geom::{Aabb3, Vec3};
-use solidcraft_engine::sim::{Accelerator, Air, CpuAccelerator, Fan, FlowSettings, Limits, Problem, SolidBody, Thermal, Wall, solve_with};
+use solidcraft_engine::sim::{
+    Accelerator, Air, CpuAccelerator, Fan, FlowFields, FlowSettings, LatticeSetup, Limits, Problem, Progress, SimError, SolidBody, Thermal,
+    ThermalSolution, ThermalSystem, Wall, solve_with,
+};
 
 fn boxed(name: &str, min: [f64; 3], max: [f64; 3], k: f64, power: f64) -> SolidBody {
     let (a, b) = (Vec3::from(min), Vec3::from(max));
@@ -93,8 +96,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--fan-speed",
             "--sponge-cells",
             "--sponge-viscosity",
+            "--dump-thermal",
         ],
-        &["--cpu"],
+        &["--cpu", "--cpu-flow"],
     )?;
     let num = |name: &str, default: f64| -> Result<f64, String> {
         match crate::flag(args, name) {
@@ -117,7 +121,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
         Arc::new(CpuAccelerator)
     } else {
         let gpu = solidcraft_sim_gpu::GpuAccelerator::headless().map_err(|e| format!("sim-bench: {e}"))?;
-        Arc::new(gpu)
+        if args.iter().any(|a| a == "--cpu-flow") { Arc::new(CpuFlow(gpu)) } else { Arc::new(gpu) }
+    };
+    let backend: Arc<dyn Accelerator> = match crate::flag(args, "--dump-thermal") {
+        Some(path) => Arc::new(DumpThermal { inner: backend, path: path.into() }),
+        None => backend,
     };
     let mut problem = chassis(cell, power);
     for f in &mut problem.fans {
@@ -187,4 +195,53 @@ pub fn run(args: &[String]) -> Result<(), String> {
         None => println!("{text}"),
     }
     Ok(())
+}
+
+/// The airflow on the CPU reference, the temperature solve on the GPU: for telling a thermal
+/// solver fault from a flow-field one (`--cpu-flow`).
+struct CpuFlow(solidcraft_sim_gpu::GpuAccelerator);
+
+impl Accelerator for CpuFlow {
+    fn name(&self) -> String {
+        format!("cpu flow + {}", self.0.name())
+    }
+    fn flow(
+        &self,
+        setup: &solidcraft_engine::sim::LatticeSetup,
+        progress: solidcraft_engine::sim::Progress,
+    ) -> Result<solidcraft_engine::sim::FlowFields, solidcraft_engine::sim::SimError> {
+        CpuAccelerator.flow(setup, progress)
+    }
+    fn thermal(
+        &self,
+        system: &solidcraft_engine::sim::ThermalSystem,
+        progress: solidcraft_engine::sim::Progress,
+    ) -> Result<solidcraft_engine::sim::ThermalSolution, solidcraft_engine::sim::SimError> {
+        self.0.thermal(system, progress)
+    }
+}
+
+/// Writes the temperature system to a file before solving it (`ThermalSystem::to_bytes`), so
+/// solver experiments can run on the exact system without the airflow solve
+/// (`--dump-thermal <path>`).
+struct DumpThermal {
+    inner: Arc<dyn Accelerator>,
+    path: std::path::PathBuf,
+}
+
+impl Accelerator for DumpThermal {
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+    fn flow(&self, setup: &LatticeSetup, progress: Progress) -> Result<FlowFields, SimError> {
+        self.inner.flow(setup, progress)
+    }
+    fn thermal(&self, system: &ThermalSystem, progress: Progress) -> Result<ThermalSolution, SimError> {
+        if let Err(e) = std::fs::write(&self.path, system.to_bytes()) {
+            eprintln!("sim-bench: could not write {}: {e}", self.path.display());
+        } else {
+            eprintln!("sim-bench: thermal system written to {}", self.path.display());
+        }
+        self.inner.thermal(system, progress)
+    }
 }

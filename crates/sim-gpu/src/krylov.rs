@@ -32,12 +32,17 @@ const TT: u32 = 9;
 const TS: u32 = 10;
 const SLOTS: u64 = 16;
 
-/// Vectors and their bindings (after params, diag, off, invdiag, b at 0..=4).
+/// Vectors, bound from `FIRST_VECTOR` on (after params, diag, the six off-diagonal sides,
+/// invdiag and b at 0..=9).
 const VECTORS: [&str; 9] = ["x", "r", "p", "q", "z", "s", "t", "sh", "r0"];
+const FIRST_VECTOR: u32 = 10;
 
 const CG_INIT: &[&str] = &["init_cg", "dot_r_z", "fin_0"];
 const CG_STEP: &[&str] = &["matvec_p_q", "dot_p_q", "fin_1", "cg_xr", "dot_r_r", "fin_2", "precond_r_z", "dot_r_z", "fin_3", "cg_p", "cg_shift"];
 const BI_INIT: &[&str] = &["init_bi"];
+/// Restart from the current x: r = b - A x, recurrences reset (after a breakdown).
+const CG_RESTART: &[&str] = &["matvec_x_q", "cg_restart", "dot_r_z", "fin_0"];
+const BI_RESTART: &[&str] = &["matvec_x_t", "bi_restart"];
 const BI_STEP: &[&str] = &[
     "dot_r0_r",
     "fin_5",
@@ -64,7 +69,7 @@ const BI_STEP: &[&str] = &[
 /// The kernels a solve uses: (entry point, runs on one workgroup).
 fn entry_points() -> Vec<(String, bool)> {
     let mut v: Vec<(String, bool)> = Vec::new();
-    for list in [CG_INIT, CG_STEP, BI_INIT, BI_STEP] {
+    for list in [CG_INIT, CG_STEP, BI_INIT, BI_STEP, CG_RESTART, BI_RESTART] {
         for k in list.iter() {
             let single = k.starts_with("fin_") || matches!(*k, "cg_shift" | "bi_shift_rho" | "bi_alpha" | "bi_omega");
             if !v.iter().any(|(n, _)| n == k) {
@@ -84,13 +89,19 @@ const WG: u32 = 256u;
 struct Params { nx: u32, ny: u32, n: u32, groups_x: u32, groups: u32, _a: u32, _b: u32, _c: u32, };
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> diag: array<f32>;
-@group(0) @binding(2) var<storage, read> off: array<f32>;
-@group(0) @binding(3) var<storage, read> invdiag: array<f32>;
-@group(0) @binding(4) var<storage, read> b: array<f32>;
+"#,
+    );
+    // one buffer per stencil side keeps each binding at n elements (devices cap a binding's size)
+    for side in 0..6 {
+        s.push_str(&format!("@group(0) @binding({}) var<storage, read> off{side}: array<f32>;\n", 2 + side));
+    }
+    s.push_str(
+        r#"@group(0) @binding(8) var<storage, read> invdiag: array<f32>;
+@group(0) @binding(9) var<storage, read> b: array<f32>;
 "#,
     );
     for (i, v) in VECTORS.iter().enumerate() {
-        s.push_str(&format!("@group(0) @binding({}) var<storage, read_write> {v}: array<f32>;\n", 5 + i));
+        s.push_str(&format!("@group(0) @binding({}) var<storage, read_write> {v}: array<f32>;\n", FIRST_VECTOR as usize + i));
     }
     s.push_str(&format!(
         r#"@group(0) @binding({}) var<storage, read_write> partials: array<f32>;
@@ -100,8 +111,8 @@ var<workgroup> red: array<f32, 256>;
 fn cell(lid: u32, wg: vec3<u32>) -> u32 {{ return (wg.y * params.groups_x + wg.x) * WG + lid; }}
 fn sdiv(a: f32, b: f32) -> f32 {{ if abs(b) > f32(0.0) {{ return a / b; }} return f32(0.0); }}
 "#,
-        5 + VECTORS.len(),
-        6 + VECTORS.len()
+        FIRST_VECTOR as usize + VECTORS.len(),
+        FIRST_VECTOR as usize + 1 + VECTORS.len()
     ));
     let matvec = |src: &str, dst: &str| {
         format!(
@@ -116,12 +127,12 @@ fn matvec_{src}_{dst}(@builtin(local_invocation_index) lid: u32, @builtin(workgr
     let ix = i % nx;
     let iy = (i / nx) % params.ny;
     var acc = diag[i] * {src}[i];
-    if ix > 0u {{ acc = acc + off[i] * {src}[i - 1u]; }}
-    if ix + 1u < nx {{ acc = acc + off[n + i] * {src}[i + 1u]; }}
-    if iy > 0u {{ acc = acc + off[2u * n + i] * {src}[i - nx]; }}
-    if iy + 1u < params.ny {{ acc = acc + off[3u * n + i] * {src}[i + nx]; }}
-    if i >= plane {{ acc = acc + off[4u * n + i] * {src}[i - plane]; }}
-    if i + plane < n {{ acc = acc + off[5u * n + i] * {src}[i + plane]; }}
+    if ix > 0u {{ acc = acc + off0[i] * {src}[i - 1u]; }}
+    if ix + 1u < nx {{ acc = acc + off1[i] * {src}[i + 1u]; }}
+    if iy > 0u {{ acc = acc + off2[i] * {src}[i - nx]; }}
+    if iy + 1u < params.ny {{ acc = acc + off3[i] * {src}[i + nx]; }}
+    if i >= plane {{ acc = acc + off4[i] * {src}[i - plane]; }}
+    if i + plane < n {{ acc = acc + off5[i] * {src}[i + plane]; }}
     {dst}[i] = acc;
 }}
 "#
@@ -200,7 +211,7 @@ fn {name}(@builtin(local_invocation_index) lid: u32) {{
 "#
         )
     };
-    for (a, d) in [("p", "q"), ("z", "q"), ("sh", "t")] {
+    for (a, d) in [("p", "q"), ("z", "q"), ("sh", "t"), ("x", "q"), ("x", "t")] {
         s.push_str(&matvec(a, d));
     }
     for (a, d) in [("p", "q"), ("r", "r"), ("r", "z"), ("r0", "r"), ("r0", "q"), ("t", "t"), ("t", "s")] {
@@ -217,6 +228,14 @@ fn {name}(@builtin(local_invocation_index) lid: u32) {{
         "init_bi",
         &format!(
             "x[i] = f32(0.0); r[i] = b[i]; r0[i] = b[i]; p[i] = f32(0.0); q[i] = f32(0.0); \
+             if i == 0u {{ scal[{RHO}u] = f32(1.0); scal[{ALPHA}u] = f32(1.0); scal[{OMEGA}u] = f32(1.0); }}"
+        ),
+    ));
+    s.push_str(&vector("cg_restart", "r[i] = b[i] - q[i]; z[i] = invdiag[i] * r[i]; p[i] = z[i];"));
+    s.push_str(&vector(
+        "bi_restart",
+        &format!(
+            "r[i] = b[i] - t[i]; r0[i] = r[i]; p[i] = f32(0.0); q[i] = f32(0.0); \
              if i == 0u {{ scal[{RHO}u] = f32(1.0); scal[{ALPHA}u] = f32(1.0); scal[{OMEGA}u] = f32(1.0); }}"
         ),
     ));
@@ -262,9 +281,10 @@ impl KrylovPipes {
         };
         let read = wgpu::BufferBindingType::Storage { read_only: true };
         let write = wgpu::BufferBindingType::Storage { read_only: false };
-        let mut entries = vec![entry(0, wgpu::BufferBindingType::Uniform), entry(1, read), entry(2, read), entry(3, read), entry(4, read)];
+        let mut entries = vec![entry(0, wgpu::BufferBindingType::Uniform)];
+        entries.extend((1..FIRST_VECTOR).map(|b| entry(b, read)));
         for k in 0..VECTORS.len() as u32 + 2 {
-            entries.push(entry(5 + k, write));
+            entries.push(entry(FIRST_VECTOR + k, write));
         }
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("solidcraft sim krylov"), entries: &entries });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -304,6 +324,8 @@ pub(crate) struct Krylov<'a> {
     bind: wgpu::BindGroup,
     b: wgpu::Buffer,
     x: wgpu::Buffer,
+    /// The x with the smallest residual so far (restored after a breakdown, returned on failure).
+    x_best: wgpu::Buffer,
     scal: wgpu::Buffer,
 }
 
@@ -362,7 +384,7 @@ impl<'a> Krylov<'a> {
             usage: wgpu::BufferUsages::UNIFORM,
         });
         let diag = storage("krylov diag", &elems(diag, e));
-        let off = storage("krylov off", &elems(off, e));
+        let offs: Vec<wgpu::Buffer> = off.chunks_exact(n).map(|side| storage("krylov off", &elems(side, e))).collect();
         let invdiag = storage("krylov invdiag", &elems(invdiag, e));
         let b = empty("krylov b", e * n as u64);
         let vectors: Vec<wgpu::Buffer> = VECTORS.iter().map(|v| empty(v, e * n as u64)).collect();
@@ -371,18 +393,21 @@ impl<'a> Krylov<'a> {
         let mut entries = vec![
             wgpu::BindGroupEntry { binding: 0, resource: params.as_entire_binding() },
             wgpu::BindGroupEntry { binding: 1, resource: diag.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: off.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 3, resource: invdiag.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 4, resource: b.as_entire_binding() },
         ];
-        for (k, v) in vectors.iter().enumerate() {
-            entries.push(wgpu::BindGroupEntry { binding: 5 + k as u32, resource: v.as_entire_binding() });
+        for (k, o) in offs.iter().enumerate() {
+            entries.push(wgpu::BindGroupEntry { binding: 2 + k as u32, resource: o.as_entire_binding() });
         }
-        entries.push(wgpu::BindGroupEntry { binding: 5 + VECTORS.len() as u32, resource: partials.as_entire_binding() });
-        entries.push(wgpu::BindGroupEntry { binding: 6 + VECTORS.len() as u32, resource: scal.as_entire_binding() });
+        entries.push(wgpu::BindGroupEntry { binding: 8, resource: invdiag.as_entire_binding() });
+        entries.push(wgpu::BindGroupEntry { binding: 9, resource: b.as_entire_binding() });
+        for (k, v) in vectors.iter().enumerate() {
+            entries.push(wgpu::BindGroupEntry { binding: FIRST_VECTOR + k as u32, resource: v.as_entire_binding() });
+        }
+        entries.push(wgpu::BindGroupEntry { binding: FIRST_VECTOR + VECTORS.len() as u32, resource: partials.as_entire_binding() });
+        entries.push(wgpu::BindGroupEntry { binding: FIRST_VECTOR + 1 + VECTORS.len() as u32, resource: scal.as_entire_binding() });
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("krylov"), layout: &pipes.layout, entries: &entries });
         let x = vectors.into_iter().next().ok_or_else(|| SimError::Internal("no x vector".into()))?;
-        Ok(Krylov { device, queue, pipes, n, gx, gy, bind, b, x, scal })
+        let x_best = empty("krylov x best", e * n as u64);
+        Ok(Krylov { device, queue, pipes, n, gx, gy, bind, b, x, x_best, scal })
     }
 
     fn encode(&self, pass: &mut wgpu::ComputePass<'_>, kernels: &[&str]) -> Result<()> {
@@ -425,9 +450,19 @@ impl<'a> Krylov<'a> {
                 Ok(f64::from(words.get(at).copied().unwrap_or(f32::NAN)))
             }
         };
+        let bytes = e * self.n as u64;
+        let copy = |from: &wgpu::Buffer, to: &wgpu::Buffer| {
+            let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("krylov copy") });
+            enc.copy_buffer_to_buffer(from, 0, to, 0, bytes);
+            self.queue.submit([enc.finish()]);
+        };
+        let restart = if symmetric { CG_RESTART } else { BI_RESTART };
         let mut done = 0usize;
         let mut residual = f64::INFINITY;
+        let mut best = f64::INFINITY;
         let mut converged = false;
+        let mut restarts = 0usize;
+        // x = 0 is the starting point and the first "best": its residual is |b| = 1.
         let mut first = true;
         while done < max_iter {
             let k = BATCH.min(max_iter - done);
@@ -437,25 +472,54 @@ impl<'a> Krylov<'a> {
                 pass.set_bind_group(0, &self.bind, &[]);
                 if first {
                     self.encode(&mut pass, init)?;
-                    first = false;
                 }
                 for _ in 0..k {
                     self.encode(&mut pass, step)?;
                 }
             }
+            if first {
+                // The starting x = 0 is the first best (residual |b| = 1).
+                enc.clear_buffer(&self.x_best, 0, None);
+                best = 1.0;
+                first = false;
+            }
             self.queue.submit([enc.finish()]);
             done += k;
             residual = read_scalar(RR)?.max(0.0).sqrt();
-            if !residual.is_finite() {
-                break;
+            if std::env::var_os("SOLIDCRAFT_SIM_DEBUG").is_some() {
+                eprintln!("  krylov {done}: residual {residual:.3e} best {best:.3e} restarts {restarts}");
             }
-            if residual < tol {
-                converged = true;
-                break;
+            if residual.is_finite() && residual < best {
+                best = residual;
+                copy(&self.x, &self.x_best);
+                if residual < tol {
+                    converged = true;
+                    break;
+                }
+            } else if !residual.is_finite() || residual > 1e3 * best {
+                // Breakdown (a recurrence scalar collapsed, round-off took over): back to the best x
+                // and restart the recurrences from its true residual.
+                restarts += 1;
+                if restarts > 20 {
+                    break;
+                }
+                copy(&self.x_best, &self.x);
+                let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("krylov restart") });
+                {
+                    let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("krylov restart"), timestamp_writes: None });
+                    pass.set_bind_group(0, &self.bind, &[]);
+                    self.encode(&mut pass, restart)?;
+                }
+                self.queue.submit([enc.finish()]);
             }
             if !progress("thermal", done, max_iter) {
                 return Err(SimError::Cancelled);
             }
+        }
+        if !converged {
+            // Never hand back a diverged iterate: the best one, with its residual.
+            copy(&self.x_best, &self.x);
+            residual = best;
         }
         let words = read(&self.x, e * self.n as u64)?;
         let x: Vec<f64> = if e == 8 {
