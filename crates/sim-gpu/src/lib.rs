@@ -11,12 +11,12 @@ use std::sync::Mutex;
 use solidcraft_sim::{Accelerator, FlowFields, LatticeSetup, Progress, SimError, ThermalSolution, ThermalSystem};
 use wgpu::util::DeviceExt;
 
+mod krylov;
 #[cfg(test)]
 mod tests;
 
 const LBM_SHADER: &str = include_str!("lbm.wgsl");
 const REDUCE_SHADER: &str = include_str!("reduce.wgsl");
-const SOLVE_SHADER: &str = include_str!("solve.wgsl");
 
 /// Lattice step kernel workgroup size (matches `lbm.wgsl`).
 const LBM_WG: u32 = 128;
@@ -61,26 +61,15 @@ fn bytes_u32(v: &[u32]) -> Vec<u8> {
     v.iter().flat_map(|x| x.to_le_bytes()).collect()
 }
 
-/// The stencil solver's kernels in one precision.
-struct SolvePipes {
-    layout: wgpu::BindGroupLayout,
-    matvec: wgpu::ComputePipeline,
-    combine: wgpu::ComputePipeline,
-    precond: wgpu::ComputePipeline,
-    dot: wgpu::ComputePipeline,
-    /// Bytes per element: 4 (f32) or 8 (f64).
-    elem: u64,
-}
-
 struct Pipelines {
     lbm_layout: wgpu::BindGroupLayout,
     lbm_step: wgpu::ComputePipeline,
     lbm_init: wgpu::ComputePipeline,
     reduce_layout: wgpu::BindGroupLayout,
     reduce: wgpu::ComputePipeline,
-    solve32: SolvePipes,
+    solve32: krylov::KrylovPipes,
     /// The same kernels in f64, on devices with `SHADER_F64`.
-    solve64: Option<SolvePipes>,
+    solve64: Option<krylov::KrylovPipes>,
 }
 
 /// The simulation backend on one GPU device.
@@ -215,20 +204,8 @@ impl GpuAccelerator {
         );
         let reduce_mod = module("solidcraft sim reduce", REDUCE_SHADER);
         let reduce_layout = layout("solidcraft sim reduce", &[entry(0, UNIFORM), entry(1, READ), entry(2, READ), entry(3, READ), entry(4, WRITE)]);
-        let solve_pipes = |source: &str, elem: u64| {
-            let solve = module("solidcraft sim solve", source);
-            let layout = layout("solidcraft sim solve", &[entry(0, UNIFORM), entry(1, READ), entry(2, READ), entry(3, READ), entry(4, WRITE)]);
-            SolvePipes {
-                matvec: pipeline("solidcraft sim matvec", &layout, &solve, "matvec"),
-                combine: pipeline("solidcraft sim combine", &layout, &solve, "combine"),
-                precond: pipeline("solidcraft sim precond", &layout, &solve, "precond"),
-                dot: pipeline("solidcraft sim dot", &layout, &solve, "dot_partial"),
-                layout,
-                elem,
-            }
-        };
-        let solve32 = solve_pipes(SOLVE_SHADER, 4);
-        let solve64 = f64_ok.then(|| solve_pipes(&SOLVE_SHADER.replace("f32", "f64"), 8));
+        let solve32 = krylov::KrylovPipes::new(device, false);
+        let solve64 = f64_ok.then(|| krylov::KrylovPipes::new(device, true));
         Pipelines {
             lbm_step: pipeline("solidcraft sim lbm step", &lbm_layout, &lbm, "step"),
             lbm_init: pipeline("solidcraft sim lbm init", &lbm_layout, &lbm, "init"),
@@ -308,26 +285,6 @@ impl GpuAccelerator {
             drop(bytes);
             read.unmap();
             Ok(values)
-        }
-    }
-
-    /// Copy `size` bytes of `src` back as f64 (blocks; native only).
-    fn read_f64(&self, src: &wgpu::Buffer, size: u64) -> Result<Vec<f64>> {
-        let words = self.read_f32(src, size)?;
-        Ok(words
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|w| f64::from_le_bytes([w[0].to_le_bytes(), w[1].to_le_bytes()].concat().try_into().unwrap_or([0; 8])))
-            .collect())
-    }
-
-    /// Copy `size` bytes of `src` back as either precision, widened to f64.
-    fn read_elems(&self, src: &wgpu::Buffer, pipes: &SolvePipes, count: usize) -> Result<Vec<f64>> {
-        if pipes.elem == 8 {
-            self.read_f64(src, 8 * count as u64)
-        } else {
-            Ok(self.read_f32(src, 4 * count as u64)?.into_iter().map(f64::from).collect())
         }
     }
 
@@ -556,85 +513,6 @@ impl GpuAccelerator {
 // ---------------------------------------------------------------------------------------------
 // Temperature
 
-/// The vectors of a solve on the device and the kernels over them, in one precision.
-struct Solver<'a> {
-    gpu: &'a GpuAccelerator,
-    pipes: &'a SolvePipes,
-    n: usize,
-    gx: u32,
-    gy: u32,
-    groups: usize,
-    diag: wgpu::Buffer,
-    off: wgpu::Buffer,
-    invdiag: wgpu::Buffer,
-    partials: wgpu::Buffer,
-    params: wgpu::Buffer,
-}
-
-/// Vector bytes in the solver's precision.
-fn elems(values: &[f64], elem: u64) -> Vec<u8> {
-    if elem == 8 { values.iter().flat_map(|v| v.to_le_bytes()).collect() } else { values.iter().flat_map(|v| (*v as f32).to_le_bytes()).collect() }
-}
-
-impl Solver<'_> {
-    fn params(&self, a: f64, b: f64, c: f64) -> Vec<u8> {
-        let mut v = Vec::with_capacity(48);
-        for x in [0u32, 0, self.n as u32, self.gx] {
-            v.extend_from_slice(&x.to_le_bytes());
-        }
-        v.extend_from_slice(&elems(&[a, b, c, 0.0], self.pipes.elem));
-        v
-    }
-
-    fn with_dims(&self, nx: u32, ny: u32, a: f64, b: f64, c: f64) -> Vec<u8> {
-        let mut v = self.params(a, b, c);
-        v.splice(0..8, nx.to_le_bytes().into_iter().chain(ny.to_le_bytes()));
-        v
-    }
-
-    fn run(&self, pipeline: &wgpu::ComputePipeline, params: &[u8], diag: &wgpu::Buffer, off: &wgpu::Buffer, x: &wgpu::Buffer, y: &wgpu::Buffer) {
-        let gpu = self.gpu;
-        gpu.queue.write_buffer(&self.params, 0, params);
-        let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("sim solve"),
-            layout: &self.pipes.layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.params.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: diag.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: off.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: x.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: y.as_entire_binding() },
-            ],
-        });
-        let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("sim solve") });
-        {
-            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("sim solve"), timestamp_writes: None });
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &bind, &[]);
-            pass.dispatch_workgroups(self.gx, self.gy, 1);
-        }
-        gpu.queue.submit([enc.finish()]);
-    }
-
-    /// y = A x
-    fn matvec(&self, nx: u32, ny: u32, x: &wgpu::Buffer, y: &wgpu::Buffer) {
-        self.run(&self.pipes.matvec, &self.with_dims(nx, ny, 0.0, 0.0, 0.0), &self.diag, &self.off, x, y);
-    }
-    /// y = a*y + b*x + c*z
-    fn combine(&self, y: &wgpu::Buffer, a: f64, x: &wgpu::Buffer, b: f64, z: &wgpu::Buffer, c: f64) {
-        self.run(&self.pipes.combine, &self.params(a, b, c), z, &self.off, x, y);
-    }
-    /// y = x / diag
-    fn precond(&self, x: &wgpu::Buffer, y: &wgpu::Buffer) {
-        self.run(&self.pipes.precond, &self.params(0.0, 0.0, 0.0), &self.invdiag, &self.off, x, y);
-    }
-    /// x · y
-    fn dot(&self, x: &wgpu::Buffer, y: &wgpu::Buffer) -> Result<f64> {
-        self.run(&self.pipes.dot, &self.params(0.0, 0.0, 0.0), y, &self.off, x, &self.partials);
-        Ok(self.gpu.read_elems(&self.partials, self.pipes, self.groups)?.iter().sum())
-    }
-}
-
 impl GpuAccelerator {
     fn thermal_inner(&self, system: &ThermalSystem, progress: Progress) -> Result<ThermalSolution> {
         let st = &system.stencil;
@@ -643,9 +521,7 @@ impl GpuAccelerator {
             return Err(SimError::Invalid("thermal system does not match its stencil".into()));
         }
         let (gx, gy) = groups(n, VEC_WG)?;
-        let groups = (gx as usize) * (gy as usize);
         let bnorm_true = system.rhs.iter().map(|v| v * v).sum::<f64>().sqrt();
-        let (nx, ny) = (st.nx as u32, st.ny as u32);
         let method = if system.symmetric { "cg" } else { "bicgstab" };
         let mut report =
             ThermalSolution { x: vec![0.0; n], iterations: 0, residual: f64::INFINITY, converged: false, method: format!("gpu-{method}") };
@@ -656,46 +532,36 @@ impl GpuAccelerator {
         }
         let plane = st.nx * st.ny;
         let neighbours = |idx: usize| [idx.wrapping_sub(1), idx + 1, idx.wrapping_sub(st.nx), idx + st.nx, idx.wrapping_sub(plane), idx + plane];
-
-        if let Some(pipes) = &self.pipelines.solve64 {
-            // Doubles on the device: the CPU algorithm as it is, one pass.
-            self.check_size(6 * 8 * n as u64, "the thermal stencil")?;
-            let diag: Vec<f64> = st.diag.clone();
-            let invdiag: Vec<f64> = st.diag.iter().map(|d| if d.abs() > 0.0 { 1.0 / d } else { 0.0 }).collect();
+        let side_major = |scale: Option<&[f64]>| -> Vec<f64> {
             let mut off = vec![0.0f64; 6 * n];
             for (idx, o) in st.off.iter().enumerate() {
+                let nb = neighbours(idx);
+                let si = scale.and_then(|s| s.get(idx)).copied().unwrap_or(1.0);
                 for (side, v) in o.iter().enumerate() {
+                    let sj = match scale {
+                        Some(s) => nb.get(side).and_then(|j| s.get(*j)).copied().unwrap_or(0.0),
+                        None => 1.0,
+                    };
                     if let Some(slot) = off.get_mut(side * n + idx) {
-                        *slot = *v;
+                        *slot = v * si * sj;
                     }
                 }
             }
-            let sv = Solver {
-                gpu: self,
-                pipes,
-                n,
-                gx,
-                gy,
-                groups,
-                diag: self.storage("sim diag", &elems(&diag, 8)),
-                off: self.storage("sim off", &elems(&off, 8)),
-                invdiag: self.storage("sim invdiag", &elems(&invdiag, 8)),
-                partials: self.empty("sim dot partials", 8 * groups as u64),
-                params: self.uniform("sim solve params", &[0u8; 48]),
-            };
-            let bytes = 8 * n as u64;
+            off
+        };
+        let read = |b: &wgpu::Buffer, size: u64| self.read_f32(b, size);
+
+        if let Some(pipes) = &self.pipelines.solve64 {
+            // Doubles on the device: the CPU algorithm as it is, one pass, resident on the GPU.
+            self.check_size(6 * 8 * n as u64, "the thermal stencil")?;
+            let invdiag: Vec<f64> = st.diag.iter().map(|d| if d.abs() > 0.0 { 1.0 / d } else { 0.0 }).collect();
+            let k = krylov::Krylov::new(&self.device, &self.queue, pipes, st.nx, st.ny, &st.diag, &side_major(None), &invdiag, gx, gy)?;
             let scaled: Vec<f64> = system.rhs.iter().map(|v| v / bnorm_true).collect();
-            let b = self.storage("sim rhs", &elems(&scaled, 8));
-            let x = self.empty("sim x", bytes);
-            let r = self.empty("sim r", bytes);
-            let inner = self.solve_pass(&sv, system.symmetric, nx, ny, &b, &x, &r, system.tolerance, system.max_iterations, progress)?;
-            report.x = self.read_elems(&x, pipes, n)?.into_iter().map(|v| v * bnorm_true).collect();
-            if report.x.len() != n {
-                return Err(internal("temperature readback is short"));
-            }
-            report.iterations = inner.iterations;
-            report.residual = inner.residual;
-            report.converged = inner.converged;
+            let solved = k.solve(&scaled, system.symmetric, system.tolerance, system.max_iterations, &read, progress)?;
+            report.x = solved.x.into_iter().map(|v| v * bnorm_true).collect();
+            report.iterations = solved.iterations;
+            report.residual = solved.residual;
+            report.converged = solved.converged;
             report.method = format!("gpu-{method}64");
             if !report.x.iter().all(|v| v.is_finite()) {
                 return Err(SimError::NotConverged("the temperature solve produced non-finite values".into()));
@@ -714,34 +580,7 @@ impl GpuAccelerator {
         self.check_size(6 * 4 * n as u64, "the thermal stencil")?;
         let scale: Vec<f64> = st.diag.iter().map(|d| if d.abs() > 0.0 { 1.0 / d.abs().sqrt() } else { 1.0 }).collect();
         let diag: Vec<f64> = st.diag.iter().zip(&scale).map(|(d, s)| d * s * s).collect();
-        let mut off = vec![0.0f64; 6 * n];
-        for (idx, o) in st.off.iter().enumerate() {
-            let nb = neighbours(idx);
-            let si = scale.get(idx).copied().unwrap_or(0.0);
-            for (side, v) in o.iter().enumerate() {
-                let sj = nb.get(side).and_then(|j| scale.get(*j)).copied().unwrap_or(0.0);
-                if let Some(slot) = off.get_mut(side * n + idx) {
-                    *slot = v * si * sj;
-                }
-            }
-        }
-        let sv = Solver {
-            gpu: self,
-            pipes,
-            n,
-            gx,
-            gy,
-            groups,
-            diag: self.storage("sim diag", &elems(&diag, 4)),
-            off: self.storage("sim off", &elems(&off, 4)),
-            invdiag: self.storage("sim invdiag", &elems(&vec![1.0; n], 4)),
-            partials: self.empty("sim dot partials", 4 * groups as u64),
-            params: self.uniform("sim solve params", &[0u8; 48]),
-        };
-        let bytes = 4 * n as u64;
-        let b = self.empty("sim rhs", bytes);
-        let x = self.empty("sim x", bytes);
-        let r = self.empty("sim r", bytes);
+        let k = krylov::Krylov::new(&self.device, &self.queue, pipes, st.nx, st.ny, &diag, &side_major(Some(&scale)), &vec![1.0; n], gx, gy)?;
         let mut residual = system.rhs.clone();
         let mut ax = vec![0.0f64; n];
         let mut used = 0usize;
@@ -755,17 +594,11 @@ impl GpuAccelerator {
             }
             let norm = rnorm.max(f64::MIN_POSITIVE);
             let rhs: Vec<f64> = residual.iter().zip(&scale).map(|(v, s)| v * s / norm).collect();
-            self.queue.write_buffer(&b, 0, &elems(&rhs, 4));
             // f32 on the device: a tighter target than this cannot be told from rounding.
-            let inner =
-                self.solve_pass(&sv, system.symmetric, nx, ny, &b, &x, &r, 1e-6, system.max_iterations.saturating_sub(used).max(50), progress)?;
+            let inner = k.solve(&rhs, system.symmetric, 1e-6, system.max_iterations.saturating_sub(used).max(50), &read, progress)?;
             used += inner.iterations;
             inner_converged = inner.converged;
-            let d = self.read_elems(&x, pipes, n)?;
-            if d.len() != n {
-                return Err(internal("temperature readback is short"));
-            }
-            for ((xi, di), s) in report.x.iter_mut().zip(&d).zip(&scale) {
+            for ((xi, di), s) in report.x.iter_mut().zip(&inner.x).zip(&scale) {
                 *xi += di * s * norm;
             }
             st.apply(&report.x, &mut ax);
@@ -788,133 +621,6 @@ impl GpuAccelerator {
             cpu.method = format!("cpu-{} (GPU f32 insufficient)", cpu.method);
             cpu.iterations += used;
             return Ok(cpu);
-        }
-        Ok(report)
-    }
-
-    /// One solve of `A x = b` on the device from `x = 0`, in the solver's precision (the
-    /// right-hand side is pre-scaled to unit norm, so `tol` is a relative residual).
-    fn solve_pass(
-        &self,
-        sv: &Solver<'_>,
-        symmetric: bool,
-        nx: u32,
-        ny: u32,
-        b: &wgpu::Buffer,
-        x: &wgpu::Buffer,
-        r: &wgpu::Buffer,
-        tol: f64,
-        max_iter: usize,
-        progress: Progress,
-    ) -> Result<ThermalSolution> {
-        let bytes = sv.pipes.elem * sv.n as u64;
-        let mut report = ThermalSolution { x: Vec::new(), iterations: 0, residual: f64::INFINITY, converged: false, method: String::new() };
-        let mut cancelled = false;
-        let mut check = |it: usize, cancelled: &mut bool| -> bool {
-            if it.is_multiple_of(25) && !progress("thermal", it, max_iter) {
-                *cancelled = true;
-                return false;
-            }
-            true
-        };
-        // x = 0, r = b
-        sv.combine(x, 0.0, b, 0.0, b, 0.0);
-        sv.combine(r, 0.0, b, 1.0, b, 0.0);
-        if symmetric {
-            let z = self.empty("sim z", bytes);
-            let p = self.empty("sim p", bytes);
-            let q = self.empty("sim q", bytes);
-            sv.precond(r, &z);
-            sv.combine(&p, 0.0, &z, 1.0, &z, 0.0);
-            let mut rz = sv.dot(r, &z)?;
-            for it in 1..=max_iter {
-                sv.matvec(nx, ny, &p, &q);
-                let pq = sv.dot(&p, &q)?;
-                if !(pq.abs() > 0.0) || !pq.is_finite() {
-                    break;
-                }
-                let alpha = rz / pq;
-                sv.combine(x, 1.0, &p, alpha, &p, 0.0);
-                sv.combine(r, 1.0, &q, -alpha, &q, 0.0);
-                let res = sv.dot(r, r)?.sqrt();
-                report.iterations = it;
-                report.residual = res;
-                if !res.is_finite() {
-                    break;
-                }
-                if res < tol {
-                    report.converged = true;
-                    break;
-                }
-                if !check(it, &mut cancelled) {
-                    break;
-                }
-                sv.precond(r, &z);
-                let rz_new = sv.dot(r, &z)?;
-                let beta = if rz.abs() > 0.0 { rz_new / rz } else { 0.0 };
-                rz = rz_new;
-                sv.combine(&p, beta, &z, 1.0, &z, 0.0);
-            }
-        } else {
-            let r0 = self.empty("sim r0", bytes);
-            let p = self.empty("sim p", bytes);
-            let v = self.empty("sim v", bytes);
-            let s = self.empty("sim s", bytes);
-            let t = self.empty("sim t", bytes);
-            let ph = self.empty("sim ph", bytes);
-            let sh = self.empty("sim sh", bytes);
-            sv.combine(&r0, 0.0, r, 1.0, r, 0.0);
-            let (mut rho, mut alpha, mut omega): (f64, f64, f64) = (1.0, 1.0, 1.0);
-            for it in 1..=max_iter {
-                let rho_new = sv.dot(&r0, r)?;
-                if !(rho_new.abs() > 0.0) || !rho_new.is_finite() || !(omega.abs() > 0.0) {
-                    break;
-                }
-                let beta = (rho_new / rho) * (alpha / omega);
-                rho = rho_new;
-                sv.combine(&p, beta, r, 1.0, &v, -beta * omega);
-                sv.precond(&p, &ph);
-                sv.matvec(nx, ny, &ph, &v);
-                let r0v = sv.dot(&r0, &v)?;
-                if !(r0v.abs() > 0.0) {
-                    break;
-                }
-                alpha = rho / r0v;
-                sv.combine(&s, 0.0, r, 1.0, &v, -alpha);
-                let snorm = sv.dot(&s, &s)?.sqrt();
-                if snorm < tol {
-                    sv.combine(x, 1.0, &ph, alpha, &ph, 0.0);
-                    report.iterations = it;
-                    report.residual = snorm;
-                    report.converged = true;
-                    break;
-                }
-                sv.precond(&s, &sh);
-                sv.matvec(nx, ny, &sh, &t);
-                let tt = sv.dot(&t, &t)?;
-                if !(tt > 0.0) {
-                    break;
-                }
-                omega = sv.dot(&t, &s)? / tt;
-                sv.combine(x, 1.0, &ph, alpha, &sh, omega);
-                sv.combine(r, 0.0, &s, 1.0, &t, -omega);
-                let res = sv.dot(r, r)?.sqrt();
-                report.iterations = it;
-                report.residual = res;
-                if !res.is_finite() {
-                    break;
-                }
-                if res < tol {
-                    report.converged = true;
-                    break;
-                }
-                if !check(it, &mut cancelled) {
-                    break;
-                }
-            }
-        }
-        if cancelled {
-            return Err(SimError::Cancelled);
         }
         Ok(report)
     }
