@@ -45,6 +45,12 @@ pub struct Worker {
 pub struct State {
     pub view: ViewState,
     pub worker: Option<Worker>,
+    /// The fan picked in the model view (its label), opened in the panel.
+    pub selected_fan: Option<usize>,
+    /// The panel still has to bring the picked fan into view.
+    pub reveal_fan: bool,
+    /// The setup glyphs the view last built (`simulation_view::glyphs`).
+    pub glyphs: Mutex<crate::simulation_view::Cache>,
 }
 
 pub fn active(app: &SolveApp) -> bool {
@@ -63,6 +69,16 @@ pub fn enter(app: &mut SolveApp, simulation: bool) -> Result<(), String> {
         }
         app.ui.tab = "SIMULATION".into();
         app.simulation_workspace.view.revision = u64::MAX;
+        // Open on the study that was solved (or the design's only study) rather than an empty
+        // default one, so the panel, the setup glyphs and the results agree.
+        let studies = &app.session.doc.simulation.studies;
+        let v = &mut app.simulation_workspace.view;
+        if !v.dirty && !studies.contains_key(&v.name) {
+            let solved = app.session.simulation.as_ref().map(|r| r.study.clone()).filter(|n| studies.contains_key(n));
+            if let Some(name) = solved.or_else(|| studies.keys().next().cloned()) {
+                v.name = name;
+            }
+        }
     } else if active(app) {
         app.ui.tab = "SOLID".into();
     }
@@ -82,9 +98,21 @@ pub fn start(app: &mut SolveApp, id: &str) {
             let next = match app.session.simulation_display {
                 SimulationDisplay::Off => SimulationDisplay::Temperature,
                 SimulationDisplay::Temperature => SimulationDisplay::Velocity,
-                SimulationDisplay::Velocity => SimulationDisplay::Off,
+                SimulationDisplay::Velocity => SimulationDisplay::Streamlines,
+                SimulationDisplay::Streamlines => SimulationDisplay::Off,
             };
             let _ = app.run("sim.display", json!({ "mode": next }));
+        }
+        // A slice through the middle of the domain, or off again.
+        "sim.slice" => {
+            let r = if app.session.simulation_view.slices.is_empty() {
+                app.run("sim.slice", json!({ "axis": "z" }))
+            } else {
+                app.run("sim.slice", json!({ "off": true }))
+            };
+            if let Err(e) = r {
+                app.set_status(e, true);
+            }
         }
         "sim.export" => export(app),
         _ => {}
@@ -232,8 +260,11 @@ pub fn panel(app: &mut SolveApp, ui: &mut egui::Ui) {
                 let mut changed = false;
                 ui.collapsing(app.tr("sim.domain"), |ui| changed |= domain_controls(app, ui));
                 ui.collapsing(app.tr("sim.air"), |ui| changed |= air_controls(app, ui));
-                egui::CollapsingHeader::new(app.tr("sim.bodies")).default_open(true).show(ui, |ui| changed |= body_controls(app, ui));
-                ui.collapsing(app.tr("sim.fans"), |ui| changed |= fan_controls(app, ui));
+                egui::CollapsingHeader::new(app.tr("sim.bodies"))
+                    .default_open(app.session.simulation.is_none())
+                    .show(ui, |ui| changed |= body_controls(app, ui));
+                let fan_open = app.simulation_workspace.reveal_fan.then_some(true);
+                egui::CollapsingHeader::new(app.tr("sim.fans")).open(fan_open).show(ui, |ui| changed |= fan_controls(app, ui));
                 ui.collapsing(app.tr("sim.airflow"), |ui| changed |= flow_controls(app, ui));
                 if changed {
                     app.simulation_workspace.view.dirty = true;
@@ -391,12 +422,21 @@ fn body_controls(app: &mut SolveApp, ui: &mut egui::Ui) -> bool {
 }
 
 fn fan_controls(app: &mut SolveApp, ui: &mut egui::Ui) -> bool {
-    let d = &mut app.simulation_workspace.view.draft;
     let mut changed = false;
     let mut remove = None;
+    let selected = app.simulation_workspace.selected_fan;
+    let reveal = std::mem::take(&mut app.simulation_workspace.reveal_fan);
+    let d = &mut app.simulation_workspace.view.draft;
     for (i, fan) in d.fans.iter_mut().enumerate() {
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut fan.name).char_limit(64).desired_width(100.0));
+            let name = ui.add(egui::TextEdit::singleline(&mut fan.name).char_limit(64).desired_width(100.0));
+            if selected == Some(i) {
+                // picked in the model view: marked, and brought into view once
+                ui.painter().rect_stroke(name.rect.expand(2.0), 3.0, egui::Stroke::new(1.5, Tokens::get().accent), egui::StrokeKind::Outside);
+                if reveal {
+                    name.scroll_to_me(Some(egui::Align::Center));
+                }
+            }
             if ui.button(crate::i18n::tr("sim.delete")).clicked() {
                 remove = Some(i);
             }
@@ -500,10 +540,7 @@ fn results_controls(app: &mut SolveApp, ui: &mut egui::Ui) {
     if run.revision != app.session.revision {
         ui.colored_label(Tokens::get().warning, app.tr("sim.stale"));
     }
-    ui.small(app.tr("sim.body_table"));
-    for b in &s.bodies {
-        ui.label(format!("{}: {:.1} / {:.1}", b.name, b.max_c, b.mean_c));
-    }
+    crate::simulation_view::body_table(app, ui, &run);
     ui.label(format!("{}: {:.1}", app.tr("sim.air_max"), s.air_max_c));
     ui.label(format!("{}: {:.2} / {:.2}", app.tr("sim.heat"), s.heat_in_w, s.heat_out_w));
     ui.small(if s.thermal_converged { app.tr("sim.converged") } else { app.tr("sim.not_converged") });
@@ -512,16 +549,31 @@ fn results_controls(app: &mut SolveApp, ui: &mut egui::Ui) {
     }
     ui.label(app.tr("sim.display"));
     let mut mode = app.session.simulation_display;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.radio_value(&mut mode, SimulationDisplay::Off, app.tr("sim.display_off"));
         ui.radio_value(&mut mode, SimulationDisplay::Temperature, app.tr("sim.display_temperature"));
         ui.add_enabled_ui(run.results.flow.is_some(), |ui| {
             ui.radio_value(&mut mode, SimulationDisplay::Velocity, app.tr("sim.display_velocity"));
+            ui.radio_value(&mut mode, SimulationDisplay::Streamlines, app.tr("sim.display_streamlines"));
         });
     });
     if mode != app.session.simulation_display {
         let _ = app.run("sim.display", json!({ "mode": mode }));
     }
+    if app.session.simulation_display == SimulationDisplay::Streamlines {
+        ui.horizontal(|ui| {
+            ui.label(app.tr("sim.seeds"));
+            let mut seeds = app.session.simulation_view.seeds as f64;
+            let max = solidcraft_engine::cmd::simulation_view::MAX_STREAMLINE_SEEDS as f64;
+            if drag(ui, &mut seeds, 1.0, 1.0..=max, 0) {
+                let _ = app.run("sim.display", json!({ "seeds": seeds as usize }));
+            }
+        });
+    }
+    ui.label(app.tr("sim.slices"));
+    crate::simulation_view::slice_controls(app, ui, &run);
+    ui.label(app.tr("sim.probes"));
+    crate::simulation_view::probe_controls(app, ui, &run);
     if ui.button(app.tr("sim.export")).clicked() {
         export(app);
     }
@@ -535,12 +587,15 @@ pub fn legend(app: &SolveApp, painter: &egui::Painter, rect: egui::Rect) {
         return;
     }
     let t = Tokens::get();
-    let (lo, hi) = body_range(run);
+    let (lo, hi) = crate::simulation_view::temperature_scale(run, app);
     let stale = run.revision != app.session.revision;
-    let flow = (app.session.simulation_display == SimulationDisplay::Velocity).then(|| run.results.summary.flow.as_ref()).flatten();
+    let arrows =
+        (app.session.simulation_display == SimulationDisplay::Velocity).then(|| run.results.summary.flow.as_ref()).flatten().map(|f| f.max_speed_m_s);
+    let flow = arrows.or_else(|| crate::simulation_view::speed_legend(app, run));
+    let slices = crate::simulation_view::slice_lines(app);
     let (pad, bar_h, row) = (8.0, 12.0, 18.0);
     let bars = 1 + usize::from(flow.is_some());
-    let h = pad * 2.0 + 18.0 + bars as f32 * (row + bar_h + 4.0) + if stale { row } else { 0.0 };
+    let h = pad * 2.0 + 18.0 + bars as f32 * (row + bar_h + 18.0) + if stale { row } else { 0.0 } + slices.len() as f32 * 15.0;
     let w = 220.0;
     let r = Rect::from_min_size(pos2(rect.right() - 12.0 - w, rect.bottom() - 12.0 - h), vec2(w, h));
     painter.rect(r, 6.0, t.overlay, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
@@ -568,13 +623,17 @@ pub fn legend(app: &SolveApp, painter: &egui::Painter, rect: egui::Rect) {
         *y += bar_h + 2.0;
         painter.text(pos2(bar.left(), *y), Align2::LEFT_TOP, low, FontId::proportional(10.5), t.text);
         painter.text(pos2(bar.right(), *y), Align2::RIGHT_TOP, high, FontId::proportional(10.5), t.text);
-        *y += 2.0;
+        *y += 16.0;
     };
     bar(crate::i18n::tr("sim.legend_temperature").to_string(), format!("{lo:.1} °C"), format!("{hi:.1} °C"), &mut y);
     if let Some(f) = flow {
-        y += row - bar_h;
-        bar(crate::i18n::tr("sim.legend_velocity").to_string(), "0 m/s".into(), format!("{:.2} m/s", f.max_speed_m_s), &mut y);
+        bar(crate::i18n::tr("sim.legend_velocity").to_string(), "0 m/s".into(), format!("{f:.2} m/s"), &mut y);
     }
+    for line in slices {
+        painter.text(pos2(r.left() + pad, y), Align2::LEFT_TOP, line, FontId::proportional(10.5), t.text_dim);
+        y += 15.0;
+    }
+    crate::scenario::publish_count("simulation:legend_hi", hi);
     if stale {
         painter.text(pos2(r.left() + pad, y + 2.0), Align2::LEFT_TOP, crate::i18n::tr("sim.stale"), FontId::proportional(10.5), t.warning);
     }

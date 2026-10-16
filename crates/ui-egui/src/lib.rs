@@ -130,6 +130,7 @@ pub mod selection;
 #[cfg(test)]
 mod shell_face_sketch_ui_tests;
 pub mod shortcut_box;
+pub mod simulation_view;
 pub mod simulation_workspace;
 pub mod sketch3d;
 #[cfg(test)]
@@ -175,6 +176,8 @@ pub mod titlebar;
 pub mod toolbar;
 pub mod toolbar_custom;
 pub mod tools;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod ui_shot;
 pub mod update;
 pub mod viewport;
 mod viewport_layout;
@@ -1061,6 +1064,18 @@ impl SolveApp {
         self.viewport.orbit_free = None;
         self.pending_fit = Some((self.cam, bounds, false));
         self.cam = self.fitted_bounds(self.cam, &bounds);
+    }
+
+    /// Frame `bounds` with an animated camera move, keeping the view direction.
+    pub fn animate_fit_bounds(&mut self, bounds: solidcraft_engine::geom::Aabb3) {
+        if bounds.is_empty() {
+            return;
+        }
+        self.pending_fit = None;
+        let request = Some((self.cam, bounds, true));
+        let to = self.fitted_bounds(self.cam, &bounds);
+        self.animate_to(to);
+        self.pending_fit = request;
     }
 
     /// `cam` moved to frame the whole model.

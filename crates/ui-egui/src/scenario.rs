@@ -139,6 +139,8 @@ pub struct Harness {
     size: egui::Vec2,
     /// The camera as the last `camera` step left it.
     cam_mark: Option<solidcraft_engine::render::Camera>,
+    /// Every texture change so far (fonts, images), for pictures of the window.
+    pub textures: egui::TexturesDelta,
 }
 
 impl Default for Harness {
@@ -168,6 +170,7 @@ impl Harness {
             time: 0.0,
             size: egui::vec2(1600.0, 1000.0),
             cam_mark: None,
+            textures: Default::default(),
         };
         WIDTHS.with(|m| m.borrow_mut().clear());
         h.install();
@@ -193,6 +196,11 @@ impl Harness {
 
     /// Lay out and draw one frame (feeding queued pointer and key events).
     pub fn frame(&mut self) {
+        self.frame_shapes();
+    }
+
+    /// [`Harness::frame`], handing back what it painted.
+    pub fn frame_shapes(&mut self) -> Vec<egui::epaint::ClippedShape> {
         self.time += 1.0 / 60.0;
         let mut raw = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, self.size)),
@@ -206,9 +214,15 @@ impl Harness {
             app.logic(ui.ctx());
             app.ui(ui);
         });
-        // Nothing is painted: drop the frame's texture changes.
-        out.textures_delta.clear();
+        // Kept for pictures of the window (`ui_shot`).
+        self.textures.append(std::mem::take(&mut out.textures_delta));
         self.output = out.platform_output;
+        out.shapes
+    }
+
+    /// The window size in points.
+    pub fn size(&self) -> egui::Vec2 {
+        self.size
     }
 
     pub fn frames(&mut self, n: usize) {

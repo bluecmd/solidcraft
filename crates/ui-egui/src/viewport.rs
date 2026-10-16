@@ -176,6 +176,11 @@ impl ViewportState {
     pub(crate) fn set_pixels_per_point(&mut self, scale: f32) {
         self.physical_scale = scale;
     }
+    /// The next frame builds every scene again (a test drawing it on a fresh renderer).
+    #[cfg(test)]
+    pub(crate) fn rebuild_scenes(&mut self) {
+        (self.key, self.sketch_key, self.hl_key) = (u64::MAX, u64::MAX, u64::MAX);
+    }
 }
 
 fn display_proj(app: &SolveApp) -> Proj {
@@ -305,6 +310,7 @@ fn scene_key(app: &SolveApp) -> u64 {
     app.session.active_sketch.hash(&mut h);
     app.session.simulation_display.hash(&mut h);
     app.session.simulation.as_ref().map(|r| std::sync::Arc::as_ptr(r) as usize).hash(&mut h);
+    crate::simulation_view::hash_scene(app, &mut h);
     h.finish()
 }
 
@@ -640,7 +646,7 @@ fn build_scene(app: &SolveApp) -> GpuScene {
     let mut run_key = std::collections::hash_map::DefaultHasher::new();
     // A shown simulation colours the bodies it solved by their surface temperature.
     let sim = s.simulation.as_ref().filter(|_| s.simulation_display != solidcraft_engine::SimulationDisplay::Off).map(|r| {
-        let (lo, hi) = crate::simulation_workspace::body_range(r);
+        let (lo, hi) = crate::simulation_view::temperature_scale(r, app);
         (r.clone(), lo, hi)
     });
     for b in &st.bodies {
@@ -700,12 +706,9 @@ fn build_scene(app: &SolveApp) -> GpuScene {
             }
         }
     }
-    // Airflow: arrows through the air cells of the shown simulation.
-    if let Some((r, _, _)) = &sim
-        && s.simulation_display == solidcraft_engine::SimulationDisplay::Velocity
-    {
-        crate::simulation_workspace::velocity_arrows(&mut sc, r);
-    }
+    // The shown simulation's airflow (arrows or streamlines), slices and probes, and the
+    // study's setup glyphs.
+    crate::simulation_view::add_to_scene(app, &mut sc, sim.as_ref().map(|(_, lo, hi)| (*lo, *hi)));
     // Continuity analysis: each seam `inspect.continuity` measured, drawn over the model in the
     // colour of its worst verdict.
     for seam in &s.continuity {
@@ -2299,6 +2302,7 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
     }
     analysis_legend(app, &painter, rect);
     crate::simulation_workspace::legend(app, &painter, rect);
+    crate::simulation_view::overlay(app, &painter, &proj, hover.filter(|_| inside && !navigating));
     crate::frame_rate::paint(app, ui.ctx(), &painter, rect);
 
     // ---- interaction ----
@@ -2340,6 +2344,8 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
         if resp.clicked() && !held {
             if app.tool.is_some() {
                 crate::tools::on_click(app, &proj, p);
+            } else if app.dialog.is_none() && crate::simulation_view::click(app, &proj, p) {
+                // The Simulation workspace: a fan label or a pinned probe.
             } else if app.dialog.as_ref().is_some_and(|d| d.wants_picks()) {
                 if let Some((hit, Some(sel))) = cand {
                     dialog_pick(app, &hit, sel);

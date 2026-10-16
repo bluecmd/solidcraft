@@ -40,7 +40,8 @@ In scope, in priority order:
 
 Deferred until further notice: MESH, FORM (T-splines), SURFACE beyond what solids need (scope proposed in #772), PCB / 3D
 PCB / Package, Render (a first product-preview workspace exists), Animation, Manufacture/CAM, Drawings. SIMULATION has a first
-workspace: voxel thermal (conduction, film convection) and lattice-Boltzmann airflow studies for enclosures and electronics
+workspace: voxel thermal (conduction, film convection) and lattice-Boltzmann airflow studies for enclosures and electronics,
+explored in the model view with slice planes, streamlines, hover and pinned probes, setup glyphs and a per-body results table
 (docs/simulation.md).
 
 ## Milestones
