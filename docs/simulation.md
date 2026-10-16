@@ -223,7 +223,8 @@ at z = 12 mm.
 
 ## Benchmark
 
-`solidcraft-cli sim-bench [--cell MM] [--steps N] [--power W] [--cpu] [--json-out FILE]` times a
+`solidcraft-cli sim-bench [--cell MM] [--steps N] [--power W] [--cpu] [--json-out FILE]`
+(and the solver-development flags below) times a
 2U server study on the GPU backend: a 440 × 700 × 88 mm chassis with sheet-metal sides, open front
 and back, a fan wall of six fans in a bulkhead, two CPUs of `--power` W (200 by default) under
 heat sinks of 20 fins 1.6 mm thick at 4.5 mm pitch, eight DIMMs and a PSU. It reports the cells,
@@ -232,3 +233,10 @@ balance and the hottest parts. The fins are resolved from about 1 mm cells (27 m
 about 3 GB of GPU memory). The stability settings (`--max-cell-reynolds`, `--lattice-velocity`,
 `--smagorinsky`, `--trt-lambda`, `--sponge-cells`, `--sponge-viscosity`, `--fan-speed`) are
 exposed for tuning.
+
+For solver work: `--cpu-flow` runs the airflow on the CPU reference and only the temperature
+solve on the GPU; `--dump-thermal FILE` writes the assembled temperature system
+(`ThermalSystem::to_bytes`) before solving it, and the ignored tests `dumped_system_on_the_cpu`
+(`crates/sim`) and `dumped_system_on_the_gpu` (`crates/sim-gpu`) solve such a file named in
+`SOLIDCRAFT_THERMAL_DUMP` without the airflow solve. `SOLIDCRAFT_SIM_DEBUG=1` traces the
+lattice every 50 steps and the solver residual every 25 iterations.
