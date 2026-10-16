@@ -117,17 +117,18 @@ impl Results {
     }
 
     /// Traces a streamline from `seed` with fourth-order Runge–Kutta steps of fixed length along
-    /// the interpolated velocity direction. Stops at the domain wall, inside a solid, where the
-    /// air is slower than `min_speed`, or at the step and length caps. Empty without a flow
-    /// solution or when the seed is outside the grid or in a solid.
+    /// the interpolated velocity direction. Stops at the domain wall, on leaving the fluid zone
+    /// the seed is in (a solid, or another fluid: air and water never mix), where the fluid is
+    /// slower than `min_speed`, or at the step and length caps. Empty without a flow solution or
+    /// when the seed is outside the grid or in a solid.
     pub fn streamline(&self, seed: Vec3, options: &StreamlineOptions) -> Streamline {
         let mut out = Streamline::default();
-        if self.flow.is_none() || !self.in_air(seed) {
+        let Some(zone) = self.fluid_zone(seed).filter(|_| self.flow.is_some()) else {
             return out;
-        }
-        let forward = self.trace(seed, options, 1.0);
+        };
+        let forward = self.trace(seed, options, 1.0, zone);
         if options.both_ways {
-            let back = self.trace(seed, options, -1.0);
+            let back = self.trace(seed, options, -1.0, zone);
             // back runs seed → upstream; reverse it and drop its copy of the seed
             for (p, s) in back.points.iter().rev().zip(back.speeds.iter().rev()) {
                 out.points.push(*p);
@@ -141,12 +142,14 @@ impl Results {
         out
     }
 
-    fn in_air(&self, p: Vec3) -> bool {
-        self.grid.cell_of(p).is_some_and(|c| self.voxels.label.get(self.grid.index(c)) == Some(&FLUID))
+    /// The fluid zone at `p` (air or a coolant), `None` in a solid or outside the grid.
+    fn fluid_zone(&self, p: Vec3) -> Option<u16> {
+        let c = self.grid.cell_of(p)?;
+        self.zones.get(self.grid.index(c)).copied().filter(|z| *z != crate::zones::ZONE_SOLID)
     }
 
     /// One direction of a streamline (`sign` = 1 downstream, -1 upstream), seed first.
-    fn trace(&self, seed: Vec3, o: &StreamlineOptions, sign: f64) -> Streamline {
+    fn trace(&self, seed: Vec3, o: &StreamlineOptions, sign: f64, zone: u16) -> Streamline {
         let mut out = Streamline::default();
         let step_cells = if o.step_cells.is_finite() { o.step_cells.clamp(0.05, 2.0) } else { 0.5 };
         let h = step_cells * self.grid.cell;
@@ -174,7 +177,7 @@ impl Results {
             let Some((k4, _)) = dir(p + k3 * h) else { break };
             let d = (k1 + k2 * 2.0 + k3 * 2.0 + k4) * (1.0 / 6.0);
             let next = p + d * h;
-            if !next.is_finite() || !self.in_air(next) {
+            if !next.is_finite() || self.fluid_zone(next) != Some(zone) {
                 break;
             }
             let Some((_, s)) = dir(next) else { break };
@@ -321,6 +324,7 @@ mod tests {
             conductivity: 1.0,
             power_w: 0.0,
             fixed_temperature_c: None,
+            fluid: None,
         };
         let problem = Problem {
             domain: grid.bounds(),
@@ -328,6 +332,7 @@ mod tests {
             bodies: vec![body],
             walls: [Wall::Open; 6],
             air: Air::default(),
+            fluids: Vec::new(),
             thermal: Thermal::default(),
             fans: Vec::new(),
             flow: None,
@@ -347,9 +352,12 @@ mod tests {
             effective_viscosity: 1.5e-5,
             backend: "test".into(),
             mlups: 0.0,
+            zones: Vec::new(),
         };
         let counts = vec![label.iter().filter(|l| **l == 0).count()];
-        Results::new(grid, Voxels { label, counts }, &problem, thermal, Some(flow))
+        let voxels = Voxels { label, counts };
+        let zones = crate::zones::zones(&voxels, &problem);
+        Results::new(grid, voxels, zones, &problem, thermal, Some(flow))
     }
 
     #[test]

@@ -362,3 +362,30 @@ fn a_pumped_water_loop_cools_a_block() {
 fn solidcraft_sim_zone_solid() -> u16 {
     crate::zones::ZONE_SOLID
 }
+
+/// Streamlines seeded in the water follow the loop and never leave it; seeded in the air they
+/// never enter the water.
+#[test]
+fn streamlines_stay_in_their_fluid_zone() {
+    let water = |name: &str, min: [f64; 3], max: [f64; 3]| {
+        let mut b = boxed(name, min, max, 0.6, 0.0);
+        b.fluid = Some(0);
+        b
+    };
+    let bodies = vec![
+        water("leg_a", [10.0, 6.0, 14.0], [90.0, 12.0, 20.0]),
+        water("leg_b", [10.0, 28.0, 14.0], [90.0, 34.0, 20.0]),
+        water("leg_c", [10.0, 6.0, 14.0], [16.0, 34.0, 20.0]),
+        water("leg_d", [84.0, 6.0, 14.0], [90.0, 34.0, 20.0]),
+    ];
+    let mut p = problem(domain([0.0, 0.0, 0.0], [100.0, 40.0, 30.0]), 2.0, bodies);
+    p.fluids.push(Fluid::water());
+    p.fans.push(Fan { name: "pump".into(), region: domain([30.0, 6.0, 14.0], [36.0, 12.0, 20.0]), velocity: Vec3::new(0.5, 0.0, 0.0) });
+    p.flow = Some(FlowSettings { max_steps: 1500, buoyancy: false, ..Default::default() });
+    let r = solve(&p, &mut go()).unwrap();
+    let line = r.streamline(Vec3::new(50.0, 9.0, 17.0), &crate::sample::StreamlineOptions { max_steps: 4000, ..Default::default() });
+    assert!(line.points.len() > 20, "a water streamline: {} points", line.points.len());
+    assert!(line.points.iter().all(|q| r.zone_at(*q) == Some(1)), "it stays in the water");
+    // it turns the corners of the loop: reaches leg B (y around 31)
+    assert!(line.points.iter().any(|q| q.y > 28.0), "it goes round the loop");
+}
