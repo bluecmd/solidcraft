@@ -6,6 +6,7 @@ use solidcraft_engine::SimulationDisplay;
 #[test]
 fn workspace_switches_by_control_and_menu_and_solves_from_the_panel() {
     let mut h = Harness::new();
+    h.app.session.set_simulation_accelerator(Some(std::sync::Arc::new(solidcraft_engine::sim::CpuAccelerator)));
     h.call("engine.execute", json!({"command": "solid.box", "params": {"length": 20, "width": 20, "height": 10}}));
     let r = h.call("ui.workspace", json!({"workspace": "simulation"}));
     assert_eq!(r["ok"], true, "{r}");
@@ -54,6 +55,7 @@ fn heat_colours_span_the_body_range_and_arrows_follow_the_flow() {
     assert!(hi[0] > hi[2], "hot is red: {hi:?}");
     assert_eq!(super::heat_color(f64::NAN), super::heat_color(0.0));
     let mut s = solidcraft_engine::Session::default();
+    s.set_simulation_accelerator(Some(std::sync::Arc::new(solidcraft_engine::sim::CpuAccelerator)));
     s.execute("solid.box", &json!({"length": 20, "width": 20, "height": 10})).unwrap();
     s.execute(
         "sim.study.set",

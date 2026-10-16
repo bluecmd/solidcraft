@@ -249,6 +249,9 @@ pub struct Session {
     pub simulation: Option<Arc<SimulationRun>>,
     /// How the viewport shows the last simulation (`sim.display`).
     pub simulation_display: SimulationDisplay,
+    /// What runs simulation solves: the GPU backend the application installs. Without one
+    /// `sim.solve` refuses (a GPU is required); tests install the CPU reference.
+    simulation_accelerator: Option<Arc<dyn solidcraft_sim::Accelerator>>,
     /// What is hidden or shown in the view (`browser.visibility`): saved with the design, not an
     /// undo step. A design brings its saved visibility when it opens (`Session::new`).
     pub visibility: Visibility,
@@ -409,6 +412,7 @@ impl Session {
             continuity: Vec::new(),
             simulation: None,
             simulation_display: SimulationDisplay::default(),
+            simulation_accelerator: None,
             checkpoints: Vec::new(),
             next_checkpoint: 1,
             saved_visibility: visibility.clone(),
@@ -697,6 +701,7 @@ impl Session {
         let spec = find_command(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
         let host_viewport = self.render_viewport.clone();
         let host_jobs = self.render_jobs.host.clone();
+        let accelerator = self.simulation_accelerator.clone();
         let live = spec.live.filter(|_| params.get("live").and_then(Value::as_bool) == Some(true));
         if live.is_none() && spec.reads_model && self.model.is_stale() {
             self.refresh();
@@ -737,6 +742,9 @@ impl Session {
         self.render_viewport = host_viewport;
         if self.render_jobs.host.is_none() && host_jobs.is_some() {
             self.set_render_job_host(host_jobs)?;
+        }
+        if self.simulation_accelerator.is_none() {
+            self.simulation_accelerator = accelerator;
         }
         if outermost && crash::enabled() {
             // A failed command leaves the design as it was (restored below).
@@ -879,6 +887,7 @@ impl Session {
             continuity: Vec::new(),
             simulation: None,
             simulation_display: SimulationDisplay::default(),
+            simulation_accelerator: self.simulation_accelerator.clone(),
             checkpoints: Vec::new(),
             next_checkpoint: 1,
             visibility: self.visibility.clone(),

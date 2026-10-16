@@ -162,6 +162,10 @@ pub fn solve(app: &mut SolveApp) {
         return;
     }
     let name = app.simulation_workspace.view.name.clone();
+    let Some(backend) = app.session.simulation_accelerator() else {
+        app.set_status(solidcraft_engine::cmd::simulation::NO_BACKEND, true);
+        return;
+    };
     #[cfg(not(target_arch = "wasm32"))]
     {
         let prepared = match solidcraft_engine::cmd::simulation::prepare(&app.session, &name, None) {
@@ -182,7 +186,7 @@ pub fn solve(app: &mut SolveApp) {
                 }
                 !c.load(std::sync::atomic::Ordering::Relaxed)
             };
-            let _ = tx.send(prepared.solve(&mut report).map_err(|e| e.to_string()));
+            let _ = tx.send(prepared.solve(&*backend, &mut report).map_err(|e| e.to_string()));
         });
         match spawned {
             Ok(_) => app.simulation_workspace.worker = Some(Worker { rx, progress, cancel, started: crate::now_ms() }),
@@ -191,6 +195,7 @@ pub fn solve(app: &mut SolveApp) {
     }
     #[cfg(target_arch = "wasm32")]
     {
+        let _ = backend;
         let _ = app.run("sim.solve", json!({ "study": name }));
     }
 }

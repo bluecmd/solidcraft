@@ -230,11 +230,18 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn solve(self, progress: solidcraft_sim::Progress) -> std::result::Result<SimulationRun, solidcraft_sim::SimError> {
-        let results = solidcraft_sim::solve(&self.problem, progress)?;
+    pub fn solve(
+        self,
+        backend: &dyn solidcraft_sim::Accelerator,
+        progress: solidcraft_sim::Progress,
+    ) -> std::result::Result<SimulationRun, solidcraft_sim::SimError> {
+        let results = solidcraft_sim::solve_with(&self.problem, backend, progress)?;
         Ok(SimulationRun { study: self.study, revision: self.revision, results, bodies: self.bodies })
     }
 }
+
+/// The refusal when no backend is installed.
+pub const NO_BACKEND: &str = "no GPU simulation backend is installed: simulation requires a GPU";
 
 /// Prepare a study of the design for solving. `flow` overrides the study's airflow setting.
 pub fn prepare(s: &Session, study: &str, flow: Option<bool>) -> Result<Prepared> {
@@ -244,6 +251,16 @@ pub fn prepare(s: &Session, study: &str, flow: Option<bool>) -> Result<Prepared>
 }
 
 impl Session {
+    /// Install what runs simulation solves (the application's GPU backend). `None` uninstalls.
+    pub fn set_simulation_accelerator(&mut self, backend: Option<Arc<dyn solidcraft_sim::Accelerator>>) {
+        self.simulation_accelerator = backend;
+    }
+
+    /// The installed simulation backend.
+    pub fn simulation_accelerator(&self) -> Option<Arc<dyn solidcraft_sim::Accelerator>> {
+        self.simulation_accelerator.clone()
+    }
+
     /// Keep a solved study as the session's simulation (what the viewport shows and `sim.results`
     /// reports); the display switches on if it was off.
     pub fn set_simulation(&mut self, run: SimulationRun) {
@@ -431,15 +448,17 @@ fn summary_json(run: &SimulationRun, stale: bool) -> Value {
 fn solve(s: &mut Session, params: &Value) -> Result<Value> {
     let cmd = "sim.solve";
     let request: Solve = serde_json::from_value(params.clone()).map_err(|e| bad(cmd, e.to_string()))?;
+    let backend = s.simulation_accelerator.clone().ok_or_else(|| bad(cmd, NO_BACKEND))?;
     let prepared = prepare(s, &request.study, request.flow)?;
     let unknown = prepared.unknown.clone();
     let domain = prepared.problem.domain;
     let mut go = |_: &str, _: usize, _: usize| true;
-    let run = prepared.solve(&mut go).map_err(|e| bad(cmd, e.to_string()))?;
+    let run = prepared.solve(&*backend, &mut go).map_err(|e| bad(cmd, e.to_string()))?;
     let mut reply = summary_json(&run, false);
     if let Some(o) = reply.as_object_mut() {
         o.insert("unknown_bodies".into(), json!(unknown));
         o.insert("domain".into(), json!({"min": domain.min, "max": domain.max}));
+        o.insert("backend".into(), json!(backend.name()));
     }
     s.set_simulation(run);
     Ok(reply)

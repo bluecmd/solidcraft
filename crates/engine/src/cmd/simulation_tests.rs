@@ -4,8 +4,26 @@ use crate::{Session, SimulationDisplay};
 
 fn session_with_block() -> Session {
     let mut s = Session::default();
+    s.set_simulation_accelerator(Some(std::sync::Arc::new(solidcraft_sim::CpuAccelerator)));
     s.execute("solid.box", &json!({"length": 20, "width": 20, "height": 10})).unwrap();
     s
+}
+
+#[test]
+fn solving_requires_an_installed_backend() {
+    let mut s = Session::default();
+    s.execute("solid.box", &json!({"length": 20, "width": 20, "height": 10})).unwrap();
+    s.execute("sim.study.set", &json!({"name": "T", "set": {"cell_size_mm": 5.0}})).unwrap();
+    s.execute("sim.body.set", &json!({"study": "T", "body": "Body1", "power_w": 1.0})).unwrap();
+    let e = s.execute("sim.solve", &json!({"study": "T"})).unwrap_err();
+    assert!(e.to_string().contains("GPU"), "{e}");
+    assert!(s.simulation_accelerator().is_none());
+    s.set_simulation_accelerator(Some(std::sync::Arc::new(solidcraft_sim::CpuAccelerator)));
+    let r = s.execute("sim.solve", &json!({"study": "T"})).unwrap();
+    assert_eq!(r["backend"], "cpu");
+    // the backend survives a new document
+    s.execute("file.new", &json!({})).unwrap();
+    assert!(s.simulation_accelerator().is_some());
 }
 
 #[test]

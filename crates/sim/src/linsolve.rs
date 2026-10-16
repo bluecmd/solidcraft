@@ -17,6 +17,9 @@ impl Stencil {
     pub fn len(&self) -> usize {
         self.diag.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.diag.is_empty()
+    }
 
     /// `y = A x`.
     pub fn apply(&self, x: &[f64], y: &mut [f64]) {

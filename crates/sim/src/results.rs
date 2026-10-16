@@ -48,6 +48,7 @@ pub struct FlowSummary {
     pub max_speed_m_s: f64,
     pub mean_speed_m_s: f64,
     pub effective_viscosity_m2_s: f64,
+    pub backend: String,
 }
 
 #[derive(Clone, Debug)]
@@ -113,6 +114,7 @@ impl Results {
                 max_speed_m_s: max,
                 mean_speed_m_s: if n > 0 { sum / n as f64 } else { 0.0 },
                 effective_viscosity_m2_s: f.effective_viscosity,
+                backend: f.backend.clone(),
             }
         });
         let summary = Summary {
@@ -128,7 +130,7 @@ impl Results {
             thermal_iterations: thermal.iterations,
             thermal_residual: thermal.residual,
             thermal_converged: thermal.converged,
-            thermal_method: thermal.method.to_string(),
+            thermal_method: thermal.method.clone(),
             flow: flow_summary,
         };
         Results { grid, voxels, thermal, flow, summary }
