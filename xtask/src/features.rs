@@ -24,6 +24,7 @@ const AREAS: &[(&str, &str)] = &[
     ("config", "Configurations"),
     ("timeline", "Timeline"),
     ("inspect", "Inspect"),
+    ("sim", "Simulation"),
     ("file", "Files"),
     ("doc", "Documents"),
     ("edit", "Edit"),
