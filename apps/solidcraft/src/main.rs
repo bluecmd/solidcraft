@@ -435,6 +435,20 @@ const APP_ID: &str = solidcraft_engine::io::APP_ID;
 
 fn main() -> eframe::Result {
     adopt_legacy_settings();
+    // Simulation runs on the GPU: a device of its own (larger buffers than the window's), opened
+    // on the first solve.
+    solidcraft_engine::cmd::simulation::register_backend_factory(|| match solidcraft_sim_gpu::GpuAccelerator::headless() {
+        Ok(gpu) => {
+            if gpu.is_software() {
+                log::warn!("simulation runs on a software GPU adapter ({}); this is slow", gpu.adapter_name());
+            }
+            Some(std::sync::Arc::new(gpu) as std::sync::Arc<dyn solidcraft_engine::sim::Accelerator>)
+        }
+        Err(e) => {
+            log::warn!("simulation has no GPU backend: {e}");
+            None
+        }
+    });
     let mut safe_mode = startup::env_on(std::env::var(startup::SAFE_MODE_ENV).ok().as_deref());
     let mut control_port: Option<u16> = solidcraft_engine::geom::env::var("CONTROL_PORT").and_then(|p| p.parse().ok());
     let mut files = Vec::new();

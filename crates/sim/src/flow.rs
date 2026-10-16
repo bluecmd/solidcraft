@@ -95,6 +95,8 @@ pub struct FlowReport {
     pub effective_viscosity: f64,
     /// What stepped the lattice.
     pub backend: String,
+    /// Million lattice (air-cell) updates per second over the run.
+    pub mlups: f64,
 }
 
 /// Lattice ↔ physical unit conversion of one run.
@@ -199,7 +201,10 @@ pub(crate) fn solve(
 ) -> Result<FlowReport> {
     let (lattice, units) = setup(grid, voxels, problem, settings, temperature)?;
     let air_cells = lattice.air_cells();
+    let started = web_time::Instant::now();
     let fields = backend.flow(&lattice, progress)?;
+    let seconds = started.elapsed().as_secs_f64().max(1e-9);
+    let mlups = (air_cells as f64) * (fields.steps as f64) / seconds / 1e6;
     let n = grid.len();
     if fields.u.len() != n || fields.rho.len() != n {
         return Err(SimError::Internal(format!("{}: flow fields do not match the grid", backend.name())));
@@ -219,5 +224,6 @@ pub(crate) fn solve(
         air_cells,
         effective_viscosity: units.effective_viscosity,
         backend: backend.name(),
+        mlups,
     })
 }

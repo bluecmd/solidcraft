@@ -243,6 +243,21 @@ impl Prepared {
 /// The refusal when no backend is installed.
 pub const NO_BACKEND: &str = "no GPU simulation backend is installed: simulation requires a GPU";
 
+type Factory = Box<dyn Fn() -> Option<Arc<dyn solidcraft_sim::Accelerator>> + Send + Sync>;
+static FACTORY: std::sync::OnceLock<Factory> = std::sync::OnceLock::new();
+static SHARED: std::sync::OnceLock<Option<Arc<dyn solidcraft_sim::Accelerator>>> = std::sync::OnceLock::new();
+
+/// Register, once per process, how to open the simulation backend (the application's GPU). It
+/// is opened lazily by the first solve and shared by every session without one of its own.
+pub fn register_backend_factory(factory: impl Fn() -> Option<Arc<dyn solidcraft_sim::Accelerator>> + Send + Sync + 'static) {
+    let _ = FACTORY.set(Box::new(factory));
+}
+
+/// The process-wide backend, opened on first use by the registered factory.
+pub fn shared_backend() -> Option<Arc<dyn solidcraft_sim::Accelerator>> {
+    SHARED.get_or_init(|| FACTORY.get().and_then(|f| f())).clone()
+}
+
 /// Prepare a study of the design for solving. `flow` overrides the study's airflow setting.
 pub fn prepare(s: &Session, study: &str, flow: Option<bool>) -> Result<Prepared> {
     let setup = s.doc.simulation.studies.get(study).cloned().ok_or_else(|| bad("sim.solve", "no simulation study with that name"))?;
@@ -256,9 +271,9 @@ impl Session {
         self.simulation_accelerator = backend;
     }
 
-    /// The installed simulation backend.
+    /// The installed simulation backend, else the process-wide one (`register_backend_factory`).
     pub fn simulation_accelerator(&self) -> Option<Arc<dyn solidcraft_sim::Accelerator>> {
-        self.simulation_accelerator.clone()
+        self.simulation_accelerator.clone().or_else(shared_backend)
     }
 
     /// Keep a solved study as the session's simulation (what the viewport shows and `sim.results`
@@ -448,7 +463,7 @@ fn summary_json(run: &SimulationRun, stale: bool) -> Value {
 fn solve(s: &mut Session, params: &Value) -> Result<Value> {
     let cmd = "sim.solve";
     let request: Solve = serde_json::from_value(params.clone()).map_err(|e| bad(cmd, e.to_string()))?;
-    let backend = s.simulation_accelerator.clone().ok_or_else(|| bad(cmd, NO_BACKEND))?;
+    let backend = s.simulation_accelerator().ok_or_else(|| bad(cmd, NO_BACKEND))?;
     let prepared = prepare(s, &request.study, request.flow)?;
     let unknown = prepared.unknown.clone();
     let domain = prepared.problem.domain;

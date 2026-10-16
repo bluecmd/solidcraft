@@ -19,6 +19,7 @@ solidcraft-sketch = { path = "crates/sketch" }
 solidcraft-kernel = { path = "crates/kernel" }
 solidcraft-render = { path = "crates/render" }
 solidcraft-sim = { path = "crates/sim" }
+solidcraft-sim-gpu = { path = "crates/sim-gpu" }
 solidcraft-gpu = { path = "crates/gpu" }
 solidcraft-doc = { path = "crates/doc" }
 solidcraft-io = { path = "crates/io" }

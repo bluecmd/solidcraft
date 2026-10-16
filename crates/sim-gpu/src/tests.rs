@@ -1,0 +1,224 @@
+//! The GPU kernels against the CPU reference on the same problems (skipped without an adapter).
+
+use solidcraft_geom::{Aabb3, Vec3};
+use solidcraft_sim::{Air, CpuAccelerator, Fan, FlowSettings, Limits, Problem, SolidBody, Thermal, Wall, solve_with};
+
+use super::GpuAccelerator;
+
+fn boxed(name: &str, min: [f64; 3], max: [f64; 3], k: f64, power: f64) -> SolidBody {
+    let (a, b) = (Vec3::from(min), Vec3::from(max));
+    let p = |x: f64, y: f64, z: f64| Vec3::new(x, y, z);
+    let positions = vec![
+        p(a.x, a.y, a.z),
+        p(b.x, a.y, a.z),
+        p(b.x, b.y, a.z),
+        p(a.x, b.y, a.z),
+        p(a.x, a.y, b.z),
+        p(b.x, a.y, b.z),
+        p(b.x, b.y, b.z),
+        p(a.x, b.y, b.z),
+    ];
+    let triangles =
+        vec![[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [2, 3, 7], [2, 7, 6], [0, 4, 7], [0, 7, 3], [1, 2, 6], [1, 6, 5]];
+    SolidBody { name: name.into(), positions, triangles, conductivity: k, power_w: power, fixed_temperature_c: None }
+}
+
+fn domain(min: [f64; 3], max: [f64; 3]) -> Aabb3 {
+    Aabb3 { min: Vec3::from(min), max: Vec3::from(max) }
+}
+
+fn problem(domain: Aabb3, cell: f64, bodies: Vec<SolidBody>) -> Problem {
+    Problem {
+        domain,
+        cell_size: cell,
+        bodies,
+        walls: [Wall::Open; 6],
+        air: Air::default(),
+        thermal: Thermal::default(),
+        fans: Vec::new(),
+        flow: None,
+        limits: Limits::default(),
+    }
+}
+
+fn gpu() -> Option<GpuAccelerator> {
+    match GpuAccelerator::headless() {
+        Ok(g) => {
+            eprintln!("GPU: {}", g.adapter_name());
+            Some(g)
+        }
+        Err(e) => {
+            eprintln!("skipping: {e}");
+            None
+        }
+    }
+}
+
+fn go() -> impl FnMut(&str, usize, usize) -> bool {
+    |_, _, _| true
+}
+
+#[test]
+fn conduction_matches_the_cpu_reference() {
+    let Some(gpu) = gpu() else { return };
+    let cube = boxed("cube", [20.0; 3], [40.0; 3], 1e4, 1.0);
+    let mut p = problem(domain([0.0; 3], [60.0; 3]), 2.0, vec![cube]);
+    p.thermal.film_coefficient = 10.0;
+    p.thermal.ambient_c = 25.0;
+    let cpu = solve_with(&p, &CpuAccelerator, &mut go()).unwrap();
+    let dev = solve_with(&p, &gpu, &mut go()).unwrap();
+    assert!(dev.summary.thermal_method.starts_with("gpu-cg"), "{}", dev.summary.thermal_method);
+    assert!(dev.summary.thermal_converged, "{:?}", dev.summary);
+    let worst = cpu.thermal.temperature.iter().zip(&dev.thermal.temperature).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(worst < 0.05, "largest temperature difference {worst} K");
+    assert!((dev.summary.heat_out_w - 1.0).abs() < 1e-2, "{:?}", dev.summary);
+}
+
+#[test]
+fn fan_driven_channel_matches_the_cpu_reference() {
+    let Some(gpu) = gpu() else { return };
+    let block = boxed("block", [25.0, 4.0, 0.0], [29.0, 8.0, 4.0], 200.0, 0.05);
+    let mut p = problem(domain([0.0, 0.0, 0.0], [60.0, 12.0, 12.0]), 1.0, vec![block]);
+    p.walls = [Wall::Open, Wall::Open, Wall::Closed, Wall::Closed, Wall::Closed, Wall::Closed];
+    p.thermal.film_coefficient = 20.0;
+    p.fans.push(Fan { name: "fan".into(), region: domain([1.0, 0.0, 0.0], [4.0, 12.0, 12.0]), velocity: Vec3::new(1.0, 0.0, 0.0) });
+    p.flow = Some(FlowSettings { max_steps: 1000, buoyancy: false, tolerance: 1e-9, ..Default::default() });
+    let cpu = solve_with(&p, &CpuAccelerator, &mut go()).unwrap();
+    let dev = solve_with(&p, &gpu, &mut go()).unwrap();
+    let (fc, fd) = (cpu.flow.as_ref().unwrap(), dev.flow.as_ref().unwrap());
+    assert_eq!(fc.steps, fd.steps);
+    let (mut num, mut den) = (0.0f64, 0.0f64);
+    for (a, b) in fc.velocity.iter().zip(&fd.velocity) {
+        for k in 0..3 {
+            num += f64::from((a[k] - b[k]) * (a[k] - b[k]));
+            den += f64::from(a[k] * a[k]);
+        }
+    }
+    let rel = (num / den).sqrt();
+    assert!(rel < 1e-3, "velocity fields differ by {rel} (relative L2)");
+    assert!((fc.max_lattice_speed - fd.max_lattice_speed).abs() < 1e-3);
+    assert!(dev.summary.thermal_method.starts_with("gpu-bicgstab"), "{}", dev.summary.thermal_method);
+    let worst = cpu.thermal.temperature.iter().zip(&dev.thermal.temperature).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(worst < 0.1, "largest temperature difference {worst} K");
+    assert!(dev.summary.flow.as_ref().unwrap().backend.starts_with("gpu"));
+}
+
+#[test]
+fn buoyant_plume_runs_on_the_gpu() {
+    let Some(gpu) = gpu() else { return };
+    let cube = boxed("cube", [20.0; 3], [40.0; 3], 200.0, 2.0);
+    let mut p = problem(domain([0.0, 0.0, 0.0], [60.0, 60.0, 100.0]), 2.5, vec![cube]);
+    p.flow = Some(FlowSettings { max_steps: 600, buoyancy: true, coupling_iterations: 1, ..Default::default() });
+    let dev = solve_with(&p, &gpu, &mut go()).unwrap();
+    let f = dev.summary.flow.as_ref().unwrap();
+    assert!(f.max_speed_m_s > 0.01, "warm air rises: {f:?}");
+    let above = dev.velocity_at(Vec3::new(30.0, 30.0, 60.0)).unwrap();
+    assert!(above.z > 0.0, "upward over the cube: {above:?}");
+}
+
+/// The solver alone on a 1-D Poisson system with a known answer, against the CPU reference.
+#[test]
+fn stencil_solver_matches_the_cpu_reference_on_a_poisson_line() {
+    use solidcraft_sim::{Accelerator, Stencil, ThermalSystem};
+    let Some(gpu) = gpu() else { return };
+    let n = 300usize;
+    let mut diag: Vec<f64> = vec![2.0; n];
+    let mut off: Vec<[f64; 6]> = vec![[0.0; 6]; n];
+    for (i, o) in off.iter_mut().enumerate() {
+        if i > 0 {
+            o[0] = -1.0;
+        }
+        if i + 1 < n {
+            o[1] = -1.0;
+        }
+    }
+    // a stiff variant: alternate a huge and a tiny conductance
+    for (i, d) in diag.iter_mut().enumerate() {
+        let k = if i % 7 == 0 { 1e4 } else { 1.0 };
+        *d = 2.0 * k;
+        off[i][0] *= k;
+        off[i][1] *= k;
+    }
+    // symmetrise: off[i][1] must equal off[i+1][0]
+    for i in 0..n - 1 {
+        let g = off[i][1].min(off[i + 1][0]);
+        off[i][1] = g;
+        off[i + 1][0] = g;
+        diag[i] = 0.0;
+    }
+    for i in 0..n {
+        diag[i] = -off[i][0] - off[i][1] + if i == 0 || i == n - 1 { 1.0 } else { 0.0 };
+    }
+    let rhs: Vec<f64> = (0..n).map(|i| if i == n / 2 { 1.0 } else { 0.0 }).collect();
+    let system = ThermalSystem { stencil: Stencil { nx: n, ny: 1, diag, off }, rhs, symmetric: true, tolerance: 1e-7, max_iterations: 5000 };
+    let cpu = CpuAccelerator.thermal(&system, &mut go()).unwrap();
+    let dev = gpu.thermal(&system, &mut go()).unwrap();
+    eprintln!("cpu {} it res {:.2e}; gpu {} {} it res {:.2e}", cpu.iterations, cpu.residual, dev.method, dev.iterations, dev.residual);
+    let worst = cpu.x.iter().zip(&dev.x).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    let scale = cpu.x.iter().map(|v| v.abs()).fold(0.0, f64::max);
+    assert!(dev.method.starts_with("gpu"), "{}", dev.method);
+    assert!(worst < 1e-5 * scale, "worst {worst} of {scale}");
+}
+
+#[test]
+#[ignore]
+fn probe_f64_support() {
+    use solidcraft_gpu::select::{Policy, pick};
+    let (adapter, report) = pick(Policy::Auto).unwrap();
+    eprintln!("adapter {} f64 {}", report.name, adapter.features().contains(wgpu::Features::SHADER_F64));
+    let (device, _queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("probe"),
+        required_features: wgpu::Features::SHADER_F64,
+        required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
+        ..Default::default()
+    }))
+    .unwrap();
+    let scopes = [wgpu::ErrorFilter::Validation].map(|f| device.push_error_scope(f));
+    let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("f64 probe"),
+        source: wgpu::ShaderSource::Wgsl(
+            "@group(0) @binding(0) var<storage, read_write> x: array<f64>;\n@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) g: vec3<u32>) { x[g.x] = x[g.x] * 2.0lf + 1.0lf; }"
+                .into(),
+        ),
+    });
+    for s in scopes {
+        let e = pollster::block_on(s.pop());
+        eprintln!("validation: {e:?}");
+    }
+}
+
+/// Without doubles (Apple GPUs), the scaled f32 solve with refinement carries a moderately
+/// stiff system, and a system it cannot carry is finished by the f64 reference, which the
+/// report says.
+#[test]
+fn single_precision_path_refines_or_admits_defeat() {
+    let Some(gpu) = gpu() else { return };
+    let gpu = gpu.without_f64();
+    assert!(!gpu.has_f64());
+    // conductive block in moving air: moderate stiffness
+    let block = boxed("block", [25.0, 4.0, 0.0], [29.0, 8.0, 4.0], 200.0, 0.05);
+    let mut p = problem(domain([0.0, 0.0, 0.0], [60.0, 12.0, 12.0]), 1.0, vec![block]);
+    p.walls = [Wall::Open, Wall::Open, Wall::Closed, Wall::Closed, Wall::Closed, Wall::Closed];
+    p.thermal.film_coefficient = 20.0;
+    p.fans.push(Fan { name: "fan".into(), region: domain([1.0, 0.0, 0.0], [4.0, 12.0, 12.0]), velocity: Vec3::new(1.0, 0.0, 0.0) });
+    p.flow = Some(FlowSettings { max_steps: 600, buoyancy: false, ..Default::default() });
+    let cpu = solve_with(&p, &CpuAccelerator, &mut go()).unwrap();
+    let dev = solve_with(&p, &gpu, &mut go()).unwrap();
+    eprintln!(
+        "f32 path: {} in {} iterations, residual {:.2e}",
+        dev.summary.thermal_method, dev.summary.thermal_iterations, dev.summary.thermal_residual
+    );
+    assert!(dev.summary.thermal_converged, "{:?}", dev.summary);
+    let worst = cpu.thermal.temperature.iter().zip(&dev.thermal.temperature).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(worst < 0.1, "largest temperature difference {worst} K");
+    // a hot metal cube in still air: too stiff for f32, and the report says who finished it
+    let cube = boxed("cube", [20.0; 3], [40.0; 3], 1e4, 1.0);
+    let p = problem(domain([0.0; 3], [60.0; 3]), 2.0, vec![cube]);
+    let cpu = solve_with(&p, &CpuAccelerator, &mut go()).unwrap();
+    let dev = solve_with(&p, &gpu, &mut go()).unwrap();
+    eprintln!("f32 path, stiff: {}", dev.summary.thermal_method);
+    assert!(dev.summary.thermal_converged);
+    assert!(dev.summary.thermal_method.contains("cpu-cg (GPU f32 insufficient)"), "{}", dev.summary.thermal_method);
+    let (a, b) = (cpu.summary.bodies[0].mean_c, dev.summary.bodies[0].mean_c);
+    assert!((a - b).abs() < 0.01, "{a} vs {b}");
+}

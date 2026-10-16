@@ -70,6 +70,7 @@ const USAGE: &str = "usage:
 ";
 
 fn main() -> ExitCode {
+    register_simulation_gpu();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
         Some("run") => cmd_run(&args[1..]),
@@ -648,4 +649,21 @@ pub(crate) fn cmd_bench_open(args: &[String]) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// Simulation runs on the GPU: the backend opens on the first `sim.solve` (a software adapter
+/// such as lavapipe counts, slowly), and its absence is reported by the command.
+fn register_simulation_gpu() {
+    solidcraft_engine::cmd::simulation::register_backend_factory(|| match solidcraft_sim_gpu::GpuAccelerator::headless() {
+        Ok(gpu) => {
+            if gpu.is_software() {
+                eprintln!("simulation: running on a software GPU adapter ({}); this is slow", gpu.adapter_name());
+            }
+            Some(std::sync::Arc::new(gpu) as std::sync::Arc<dyn solidcraft_engine::sim::Accelerator>)
+        }
+        Err(e) => {
+            eprintln!("simulation: no GPU backend: {e}");
+            None
+        }
+    });
 }

@@ -49,6 +49,8 @@ pub struct FlowSummary {
     pub mean_speed_m_s: f64,
     pub effective_viscosity_m2_s: f64,
     pub backend: String,
+    /// Million lattice updates per second the airflow solve achieved.
+    pub mlups: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -115,6 +117,7 @@ impl Results {
                 mean_speed_m_s: if n > 0 { sum / n as f64 } else { 0.0 },
                 effective_viscosity_m2_s: f.effective_viscosity,
                 backend: f.backend.clone(),
+                mlups: f.mlups,
             }
         });
         let summary = Summary {

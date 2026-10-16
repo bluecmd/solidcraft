@@ -48,6 +48,28 @@ field stops changing (a steady or time-averaged flow).
 - Buoyancy (Boussinesq, gravity along −Z) is on by default; with it the thermal and flow
   solves alternate `coupling_iterations` times. Turn it off for purely fan-driven cases.
 
+## On the GPU
+
+Simulation requires a GPU. The application and the CLI open a device of their own for it
+(`solidcraft-sim-gpu`, a wgpu compute backend; the `SOLIDCRAFT_GPU` policy chooses the adapter)
+on the first solve, and `sim.solve` refuses without one. The lattice-Boltzmann step runs
+entirely on the device: one population buffer with in-place AA-pattern streaming (bounce-back
+falls out of the slot swap), the two-relaxation-time collision with the Smagorinsky eddy
+viscosity and Guo forcing, fans as equilibrium cells, open walls as ambient equilibrium; a
+reduction kernel reports the change of the velocity field every 50 steps. The temperature
+system (7-point stencil) is solved on the device by conjugate gradients or BiCGSTAB with the
+stencil, vector updates and dot products as kernels and the recurrences on the host. On GPUs
+with doubles (`SHADER_F64`: NVIDIA, AMD, Intel, lavapipe) it runs in f64 like the CPU
+reference. Without doubles (Apple) it runs a symmetrically scaled f32 solve with f64
+refinement, and when that cannot carry a stiff system (metal beside air spans ten orders of
+conductance) the f64 CPU reference finishes the temperature solve and the report names it
+(`cpu-cg (GPU f32 insufficient)`); the airflow stays on the GPU. The summary reports the
+backend and the throughput (`mlups`, million lattice updates per second).
+
+The CPU implementation remains as the reference the GPU kernels are checked against
+(`crates/sim-gpu/src/tests.rs`: the fields agree to better than 0.1% on a fan-driven channel,
+temperatures to 0.05 K).
+
 ## Commands
 
 | Command | Does |
@@ -73,8 +95,9 @@ trt_lambda}`), `limits {max_cells, max_iterations, tolerance}`.
 
 The summary reports, per body, the min/max/mean temperature and the cells it got; the air's
 max and mean; the heat generated and the heat leaving (they agree when the solve converged);
-solver iterations and residual; and for airflow the steps, convergence, time step, fastest
-lattice speed (stability needs it well below 0.3) and the viscosity used.
+solver iterations, residual and method (`gpu-cg64`, …); and for airflow the steps, convergence,
+time step, fastest lattice speed (stability needs it well below 0.3), the viscosity used, the
+backend and its throughput.
 
 Studies are saved with the design (`simulation` in the file); results are not.
 
