@@ -245,6 +245,14 @@ through wgpu, f64 solver), 3000 lattice steps, commit f2eac6d6:
 The heat balance is exact (470 W in, 470 W out) on both. The lattice runs at about 70% of the
 memory-bandwidth ceiling for D3Q19 in f32 on that part.
 
+The benchmark also runs on a DGX Spark through Bazel remote execution, with no image to build
+or ship: `bazel test --config=remote //tools/sim-bench:gb10` (or `:gb10-1_5`) cross-compiles
+the CLI for aarch64 here and executes the test on the GB10 executor of the cluster's BuildBuddy
+(pool `gb10`, see `tools/sim-bench/BUILD.bazel` and `platforms/`); the log and the JSON
+(`sim-bench.json` in the test's outputs) appear in the BuildBuddy invocation. The Bazel build
+of the workspace lives beside Cargo (`MODULE.bazel`; `tools/bazel/generate_build.py` writes the
+crates' BUILD files from the manifests).
+
 For solver work: `--cpu-flow` runs the airflow on the CPU reference and only the temperature
 solve on the GPU; `--dump-thermal FILE` writes the assembled temperature system
 (`ThermalSystem::to_bytes`) before solving it, and the ignored tests `dumped_system_on_the_cpu`

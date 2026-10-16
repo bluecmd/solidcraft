@@ -41,3 +41,18 @@ no privileges:
   access, readlink, ioctl, socket, connect, fopen, getenv and dlopen with its result and errno.
 - `/opt/trace/libhooks.so` defines the glibc malloc hooks removed in 2.34 and Xorg's `ErrorF`, for
   testing whether a driver needs them (this one did not).
+
+## Through Bazel instead
+
+The image is no longer needed to run the benchmark on a Spark: `bazel test --config=remote
+//tools/sim-bench:gb10` (or `:gb10-1_5`) cross-compiles the CLI for aarch64 and runs the test on
+the cluster's GB10 BuildBuddy executor (pool `gb10`, `BUILD.bazel` here; the executor and its
+image are `apps/buildbuddy` in argocd-apps), with the log and `sim-bench.json` in the BuildBuddy
+invocation. The image and its tools remain for diagnosing the driver in a plain container.
+
+Memory on the executor: the GB10's memory is unified, and a measurement of the 1.5 mm case
+(2026-10-16) showed the pod's memory cgroup charging only ~2.1 GB while the node lost ~2.9 GB and
+the process RSS reached ~2.8 GB — the GPU side escapes the cgroup, so the pod's 5 GiB limit does
+not bound a GPU-heavy action and node headroom is the real limit (spark-2 bottomed at ~1.3 GB
+free beside GLM). Keep 1.5 mm as the largest case there; 1 mm (27 M cells, ~14 GB) needs a node
+with 20 GB free.
