@@ -333,7 +333,8 @@ mod tests {
             flow: None,
             limits: Limits::default(),
         };
-        let thermal = ThermalReport { temperature, iterations: 0, residual: 0.0, converged: true, method: "test", heat_in: 0.0, heat_out: 0.0 };
+        let thermal =
+            ThermalReport { temperature, iterations: 0, residual: 0.0, converged: true, method: "test".into(), heat_in: 0.0, heat_out: 0.0 };
         let flow = FlowReport {
             velocity,
             pressure: vec![0.0; n],
@@ -344,6 +345,8 @@ mod tests {
             max_lattice_speed: 0.0,
             air_cells: n,
             effective_viscosity: 1.5e-5,
+            backend: "test".into(),
+            mlups: 0.0,
         };
         let counts = vec![label.iter().filter(|l| **l == 0).count()];
         Results::new(grid, Voxels { label, counts }, &problem, thermal, Some(flow))

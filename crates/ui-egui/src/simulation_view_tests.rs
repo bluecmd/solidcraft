@@ -3,6 +3,13 @@ use solidcraft_engine::SimulationDisplay;
 
 use crate::scenario::Harness;
 
+/// A harness that solves on the CPU reference backend.
+fn harness() -> Harness {
+    let mut h = Harness::new();
+    h.app.session.set_simulation_accelerator(Some(std::sync::Arc::new(solidcraft_engine::sim::CpuAccelerator)));
+    h
+}
+
 fn exec(h: &mut Harness, command: &str, params: serde_json::Value) -> serde_json::Value {
     let r = h.call("engine.execute", json!({"command": command, "params": params}));
     assert_eq!(r["ok"], true, "{command}: {r}");
@@ -11,7 +18,7 @@ fn exec(h: &mut Harness, command: &str, params: serde_json::Value) -> serde_json
 
 /// A heated 20 x 20 x 10 block, solved, in the Simulation workspace.
 fn solved_block() -> Harness {
-    let mut h = Harness::new();
+    let mut h = harness();
     exec(&mut h, "solid.box", json!({"length": 20, "width": 20, "height": 10}));
     exec(&mut h, "sim.study.set", json!({"name": "Thermal", "set": {"cell_size_mm": 2.0, "padding_mm": 10.0, "air": {"mixing_factor": 50.0}}}));
     exec(&mut h, "sim.body.set", json!({"study": "Thermal", "body": "Body1", "power_w": 1.0}));
@@ -85,7 +92,7 @@ fn a_slice_from_the_panel_is_probed_where_no_body_is() {
 
 #[test]
 fn the_body_table_frames_a_body_and_pins_its_hottest_point() {
-    let mut h = Harness::new();
+    let mut h = harness();
     exec(&mut h, "solid.box", json!({"length": 20, "width": 20, "height": 10, "body_name": "Cool"}));
     exec(&mut h, "solid.box", json!({"length": 6, "width": 6, "height": 4, "corner": [40, 0, 0], "body_name": "Hot"}));
     exec(&mut h, "sim.study.set", json!({"name": "Thermal", "set": {"cell_size_mm": 2.0, "padding_mm": 8.0, "air": {"mixing_factor": 50.0}}}));
@@ -110,7 +117,7 @@ fn the_body_table_frames_a_body_and_pins_its_hottest_point() {
 
 #[test]
 fn fans_are_drawn_and_picked_and_streamlines_shown() {
-    let mut h = Harness::new();
+    let mut h = harness();
     exec(&mut h, "solid.box", json!({"length": 20, "width": 20, "height": 10}));
     exec(
         &mut h,
@@ -161,7 +168,7 @@ fn review_pictures() {
     let Some(dir) = std::env::var_os("SIM_VISUALS_SHOTS") else { return };
     let dir = std::path::PathBuf::from(dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut h = Harness::new();
+    let mut h = harness();
     let script: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/simulation-airflow.json")).unwrap())
             .unwrap();

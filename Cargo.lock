@@ -4072,6 +4072,7 @@ dependencies = [
  "rustls",
  "serde_json",
  "solidcraft-engine",
+ "solidcraft-sim-gpu",
  "solidcraft-ui-egui",
  "ureq",
  "windows-sys 0.61.2",
@@ -4087,6 +4088,7 @@ dependencies = [
  "solidcraft-engine",
  "solidcraft-gpu",
  "solidcraft-mcp",
+ "solidcraft-sim-gpu",
 ]
 
 [[package]]
@@ -4229,6 +4231,20 @@ dependencies = [
  "serde_json",
  "solidcraft-geom",
  "thiserror 2.0.21",
+ "web-time",
+]
+
+[[package]]
+name = "solidcraft-sim-gpu"
+version = "0.14.0"
+dependencies = [
+ "log",
+ "pollster 0.4.0",
+ "solidcraft-geom",
+ "solidcraft-gpu",
+ "solidcraft-sim",
+ "thiserror 2.0.21",
+ "wgpu",
 ]
 
 [[package]]

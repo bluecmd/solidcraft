@@ -4,9 +4,16 @@ use solidcraft_geom::Vec3;
 use super::*;
 use crate::{Session, SimulationDisplay};
 
+/// A session that solves on the CPU reference backend.
+fn session() -> Session {
+    let mut s = Session::default();
+    s.set_simulation_accelerator(Some(std::sync::Arc::new(solidcraft_sim::CpuAccelerator)));
+    s
+}
+
 /// A 20 x 20 x 10 block heated with 1 W, solved on 2 mm cells with 10 mm of air around it.
 fn solved_block() -> Session {
-    let mut s = Session::default();
+    let mut s = session();
     s.execute("solid.box", &json!({"length": 20, "width": 20, "height": 10})).unwrap();
     s.execute("sim.study.set", &json!({"name": "T", "set": {"cell_size_mm": 2.0, "padding_mm": 10.0, "air": {"mixing_factor": 50.0}}})).unwrap();
     s.execute("sim.body.set", &json!({"study": "T", "body": "Body1", "power_w": 1.0})).unwrap();
@@ -16,7 +23,7 @@ fn solved_block() -> Session {
 
 /// The block in a duct with a fan blowing +x through it.
 fn solved_duct() -> Session {
-    let mut s = Session::default();
+    let mut s = session();
     s.execute("solid.box", &json!({"length": 20, "width": 20, "height": 10})).unwrap();
     s.execute(
         "sim.study.set",
@@ -36,7 +43,7 @@ fn solved_duct() -> Session {
 
 #[test]
 fn slices_are_one_per_axis_and_cut_every_cell_of_the_plane() {
-    let mut s = Session::default();
+    let mut s = session();
     s.execute("solid.box", &json!({"length": 20, "width": 20, "height": 10})).unwrap();
     // before a solve a slice needs its position
     assert!(s.execute("sim.slice", &json!({"axis": "z"})).is_err());
@@ -100,7 +107,7 @@ fn slices_are_one_per_axis_and_cut_every_cell_of_the_plane() {
 
 #[test]
 fn a_fine_slice_is_sampled_down_to_the_quad_cap() {
-    let mut s = Session::default();
+    let mut s = session();
     s.execute("solid.box", &json!({"length": 20, "width": 20, "height": 2, "corner": [140, 140, 0]})).unwrap();
     s.execute("sim.study.set", &json!({"name": "T", "set": {"cell_size_mm": 1.0, "domain": {"min": [0, 0, 0], "max": [300, 300, 2]}}})).unwrap();
     s.execute("sim.body.set", &json!({"study": "T", "body": "Body1", "power_w": 0.1})).unwrap();
@@ -119,7 +126,7 @@ fn a_fine_slice_is_sampled_down_to_the_quad_cap() {
 
 #[test]
 fn probes_pin_read_and_delete() {
-    let mut s = Session::default();
+    let mut s = session();
     s.execute("solid.box", &json!({"length": 20, "width": 20, "height": 10})).unwrap();
     assert!(s.execute("sim.probe.pin", &json!({"point": [10, 10, 5]})).is_err(), "nothing solved");
     let mut s = solved_block();
