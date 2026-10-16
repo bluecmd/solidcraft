@@ -159,7 +159,7 @@ pub fn setup(
     let mut kmax = 0usize;
     let mut cells = 0usize;
     let mut fan_of = vec![u32::MAX; n];
-    for idx in 0..n {
+    for (idx, slot) in fan_of.iter_mut().enumerate() {
         if zones.get(idx) != Some(&zone) {
             continue;
         }
@@ -172,7 +172,7 @@ pub fn setup(
             let r = &f.region;
             if centre.x >= r.min.x && centre.x <= r.max.x && centre.y >= r.min.y && centre.y <= r.max.y && centre.z >= r.min.z && centre.z <= r.max.z
             {
-                fan_of[idx] = fi as u32;
+                *slot = fi as u32;
                 if let Some(h) = fan_hit.get_mut(fi) {
                     *h = true;
                 }

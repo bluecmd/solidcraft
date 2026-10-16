@@ -33,8 +33,18 @@ finite-volume stencil solved with conjugate gradients (BiCGSTAB when air moves).
   nowhere to go and the solve refuses.
 - Radiation is not modelled.
 
-**Airflow** is a D3Q19 lattice-Boltzmann solver on the air cells, run until the velocity
-field stops changing (a steady or time-averaged flow).
+**Coolant** is a second fluid zone: model the water as its own body (the inside of the tubes
+and blocks, as the CAD shape of the coolant) and tag it as a fluid. Its cells get water's
+conductivity, heat capacity, viscosity, expansion and a water-side film coefficient against
+solids (thousands of W/m²K); a fan whose region lies inside the water acts as a pump. Each
+fluid zone is its own lattice with its own time step and viscosity floor; a coolant never meets
+the domain walls and bounces off every cell that is not its own zone. The thermal grid couples
+the zones through the solids they touch. Resolved water channels need cells a few times
+smaller than the channel: tubes of 8 mm at 2 mm cells are fine, the micro-channels of a cold
+plate are not (a cold plate is modelled as a water-filled cavity until grid refinement lands).
+
+**Airflow** (and every fluid zone) is a D3Q19 lattice-Boltzmann solver on the zone's cells, run
+until the velocity field stops changing (a steady or time-averaged flow).
 
 - Fans are axis-aligned regions of air driven at a velocity vector; put one just inside an
   opening, or across a duct.

@@ -312,7 +312,7 @@ fn debug_duct() {
 /// cooler than with the water standing still.
 #[test]
 fn a_pumped_water_loop_cools_a_block() {
-    let mut water = |name: &str, min: [f64; 3], max: [f64; 3]| {
+    let water = |name: &str, min: [f64; 3], max: [f64; 3]| {
         let mut b = boxed(name, min, max, 0.6, 0.0);
         b.fluid = Some(0);
         b
