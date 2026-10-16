@@ -3,7 +3,7 @@
 use solidcraft_geom::{Aabb3, Vec3};
 use solidcraft_sim::{Accelerator, Air, CpuAccelerator, Fan, FlowSettings, Limits, Problem, SolidBody, Thermal, ThermalSystem, Wall, solve_with};
 
-use super::GpuAccelerator;
+use super::{GpuAccelerator, GpuSimError};
 
 fn boxed(name: &str, min: [f64; 3], max: [f64; 3], k: f64, power: f64) -> SolidBody {
     let (a, b) = (Vec3::from(min), Vec3::from(max));
@@ -48,10 +48,12 @@ fn gpu() -> Option<GpuAccelerator> {
             eprintln!("GPU: {}", g.adapter_name());
             Some(g)
         }
-        Err(e) => {
+        // only a missing adapter is a reason to skip: a kernel that fails to build is a failure
+        Err(GpuSimError::NoAdapter(e)) => {
             eprintln!("skipping: {e}");
             None
         }
+        Err(e) => panic!("the GPU backend did not build: {e}"),
     }
 }
 

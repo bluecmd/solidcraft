@@ -9,9 +9,9 @@ use crate::linsolve::Stencil;
 use crate::par_chunks_mut;
 
 /// Red-black sweeps (one red and one black) before and after the coarse correction.
-const SMOOTH: usize = 2;
+pub const SMOOTH: usize = 2;
 /// Sweep pairs on the coarsest level, each way.
-const COARSE_SWEEPS: usize = 8;
+pub const COARSE_SWEEPS: usize = 8;
 /// Coarsening stops at this many cells.
 const COARSEST: usize = 1000;
 
@@ -90,6 +90,11 @@ impl Multigrid {
 
     pub fn levels(&self) -> usize {
         self.levels.len()
+    }
+
+    /// The operator of every level, finest first.
+    pub fn stencils(&self) -> &[Stencil] {
+        &self.levels
     }
 
     pub fn work(&self) -> Work {

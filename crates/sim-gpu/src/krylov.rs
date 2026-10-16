@@ -1,7 +1,7 @@
 //! GPU-resident Krylov solvers for the temperature system: conjugate gradients (symmetric) and
-//! BiCGSTAB (advection makes it one-sided), Jacobi preconditioned. Vectors and the scalar
-//! recurrences (ρ, α, ω, …) stay on the device: dot products reduce in two stages (workgroup
-//! partials, then one workgroup into a scalar slot) and the update kernels read their
+//! BiCGSTAB (advection makes it one-sided), preconditioned by a multigrid V-cycle. Vectors and
+//! the scalar recurrences (ρ, α, ω, …) stay on the device: dot products reduce in two stages
+//! (workgroup partials, then one workgroup into a scalar slot) and the update kernels read their
 //! coefficients from those slots. A batch of iterations is encoded in one submission and the
 //! host reads the residual back once per batch, instead of synchronising on every dot product.
 //!
@@ -12,6 +12,8 @@ use std::collections::HashMap;
 
 use solidcraft_sim::{Progress, SimError};
 use wgpu::util::DeviceExt;
+
+use crate::multigrid::GpuMultigrid;
 
 type Result<T> = std::result::Result<T, SimError>;
 
@@ -32,16 +34,17 @@ const TT: u32 = 9;
 const TS: u32 = 10;
 const SLOTS: u64 = 16;
 
-/// Vectors, bound from `FIRST_VECTOR` on (after params, diag, the six off-diagonal sides,
-/// invdiag and b at 0..=9).
+/// Vectors, bound from `FIRST_VECTOR` on (after params, diag, the six off-diagonal sides and b
+/// at 0..=8).
 const VECTORS: [&str; 9] = ["x", "r", "p", "q", "z", "s", "t", "sh", "r0"];
-const FIRST_VECTOR: u32 = 10;
+const FIRST_VECTOR: u32 = 9;
 
-const CG_INIT: &[&str] = &["init_cg", "dot_r_z", "fin_0"];
+/// A step is a list of kernels; `precond_<a>_<b>` is the multigrid cycle `b = M⁻¹ a`.
+const CG_INIT: &[&str] = &["init_cg", "precond_r_z", "cg_p0", "dot_r_z", "fin_0"];
 const CG_STEP: &[&str] = &["matvec_p_q", "dot_p_q", "fin_1", "cg_xr", "dot_r_r", "fin_2", "precond_r_z", "dot_r_z", "fin_3", "cg_p", "cg_shift"];
 const BI_INIT: &[&str] = &["init_bi"];
 /// Restart from the current x: r = b - A x, recurrences reset (after a breakdown).
-const CG_RESTART: &[&str] = &["matvec_x_q", "cg_restart", "dot_r_z", "fin_0"];
+const CG_RESTART: &[&str] = &["matvec_x_q", "cg_restart", "precond_r_z", "cg_p0", "dot_r_z", "fin_0"];
 const BI_RESTART: &[&str] = &["matvec_x_t", "bi_restart"];
 const BI_STEP: &[&str] = &[
     "dot_r0_r",
@@ -71,6 +74,9 @@ fn entry_points() -> Vec<(String, bool)> {
     let mut v: Vec<(String, bool)> = Vec::new();
     for list in [CG_INIT, CG_STEP, BI_INIT, BI_STEP, CG_RESTART, BI_RESTART] {
         for k in list.iter() {
+            if k.starts_with("precond_") {
+                continue;
+            }
             let single = k.starts_with("fin_") || matches!(*k, "cg_shift" | "bi_shift_rho" | "bi_alpha" | "bi_omega");
             if !v.iter().any(|(n, _)| n == k) {
                 v.push((k.to_string(), single));
@@ -95,11 +101,7 @@ struct Params { nx: u32, ny: u32, n: u32, groups_x: u32, groups: u32, _a: u32, _
     for side in 0..6 {
         s.push_str(&format!("@group(0) @binding({}) var<storage, read> off{side}: array<f32>;\n", 2 + side));
     }
-    s.push_str(
-        r#"@group(0) @binding(8) var<storage, read> invdiag: array<f32>;
-@group(0) @binding(9) var<storage, read> b: array<f32>;
-"#,
-    );
+    s.push_str("@group(0) @binding(8) var<storage, read> b: array<f32>;\n");
     for (i, v) in VECTORS.iter().enumerate() {
         s.push_str(&format!("@group(0) @binding({}) var<storage, read_write> {v}: array<f32>;\n", FIRST_VECTOR as usize + i));
     }
@@ -176,18 +178,6 @@ fn fin_{slot}(@builtin(local_invocation_index) lid: u32) {{
 "#
         )
     };
-    let precond = |src: &str, dst: &str| {
-        format!(
-            r#"
-@compute @workgroup_size(256)
-fn precond_{src}_{dst}(@builtin(local_invocation_index) lid: u32, @builtin(workgroup_id) wg: vec3<u32>) {{
-    let i = cell(lid, wg);
-    if i >= params.n {{ return; }}
-    {dst}[i] = invdiag[i] * {src}[i];
-}}
-"#
-        )
-    };
     let vector = |name: &str, body: &str| {
         format!(
             r#"
@@ -220,10 +210,8 @@ fn {name}(@builtin(local_invocation_index) lid: u32) {{
     for slot in [RZ, PQ, RR, RZN, RHON, R0V, TT, TS] {
         s.push_str(&fin(slot));
     }
-    for (a, d) in [("r", "z"), ("p", "z"), ("s", "sh")] {
-        s.push_str(&precond(a, d));
-    }
-    s.push_str(&vector("init_cg", "x[i] = f32(0.0); r[i] = b[i]; z[i] = invdiag[i] * b[i]; p[i] = z[i];"));
+    s.push_str(&vector("init_cg", "x[i] = f32(0.0); r[i] = b[i];"));
+    s.push_str(&vector("cg_p0", "p[i] = z[i];"));
     s.push_str(&vector(
         "init_bi",
         &format!(
@@ -231,7 +219,7 @@ fn {name}(@builtin(local_invocation_index) lid: u32) {{
              if i == 0u {{ scal[{RHO}u] = f32(1.0); scal[{ALPHA}u] = f32(1.0); scal[{OMEGA}u] = f32(1.0); }}"
         ),
     ));
-    s.push_str(&vector("cg_restart", "r[i] = b[i] - q[i]; z[i] = invdiag[i] * r[i]; p[i] = z[i];"));
+    s.push_str(&vector("cg_restart", "r[i] = b[i] - q[i];"));
     s.push_str(&vector(
         "bi_restart",
         &format!(
@@ -318,12 +306,14 @@ pub(crate) struct Krylov<'a> {
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
     pipes: &'a KrylovPipes,
+    mg: &'a GpuMultigrid<'a>,
     n: usize,
     gx: u32,
     gy: u32,
     bind: wgpu::BindGroup,
     b: wgpu::Buffer,
-    x: wgpu::Buffer,
+    /// In `VECTORS` order; `x` first.
+    vectors: Vec<wgpu::Buffer>,
     /// The x with the smallest residual so far (restored after a breakdown, returned on failure).
     x_best: wgpu::Buffer,
     scal: wgpu::Buffer,
@@ -339,21 +329,21 @@ pub(crate) struct Solved {
 }
 
 impl<'a> Krylov<'a> {
-    /// `off` is side-major: `off[side * n + cell]`.
+    /// `off` is side-major: `off[side * n + cell]`; `mg` is the preconditioner of the same system.
     pub(crate) fn new(
         device: &'a wgpu::Device,
         queue: &'a wgpu::Queue,
         pipes: &'a KrylovPipes,
+        mg: &'a GpuMultigrid<'a>,
         nx: usize,
         ny: usize,
         diag: &[f64],
         off: &[f64],
-        invdiag: &[f64],
         gx: u32,
         gy: u32,
     ) -> Result<Krylov<'a>> {
         let n = diag.len();
-        if off.len() != 6 * n || invdiag.len() != n || n == 0 {
+        if off.len() != 6 * n || n == 0 {
             return Err(SimError::Invalid("stencil arrays do not match".into()));
         }
         let groups = (gx as usize) * (gy as usize);
@@ -385,7 +375,6 @@ impl<'a> Krylov<'a> {
         });
         let diag = storage("krylov diag", &elems(diag, e));
         let offs: Vec<wgpu::Buffer> = off.chunks_exact(n).map(|side| storage("krylov off", &elems(side, e))).collect();
-        let invdiag = storage("krylov invdiag", &elems(invdiag, e));
         let b = empty("krylov b", e * n as u64);
         let vectors: Vec<wgpu::Buffer> = VECTORS.iter().map(|v| empty(v, e * n as u64)).collect();
         let partials = empty("krylov partials", e * groups as u64);
@@ -397,22 +386,51 @@ impl<'a> Krylov<'a> {
         for (k, o) in offs.iter().enumerate() {
             entries.push(wgpu::BindGroupEntry { binding: 2 + k as u32, resource: o.as_entire_binding() });
         }
-        entries.push(wgpu::BindGroupEntry { binding: 8, resource: invdiag.as_entire_binding() });
-        entries.push(wgpu::BindGroupEntry { binding: 9, resource: b.as_entire_binding() });
+        entries.push(wgpu::BindGroupEntry { binding: 8, resource: b.as_entire_binding() });
         for (k, v) in vectors.iter().enumerate() {
             entries.push(wgpu::BindGroupEntry { binding: FIRST_VECTOR + k as u32, resource: v.as_entire_binding() });
         }
         entries.push(wgpu::BindGroupEntry { binding: FIRST_VECTOR + VECTORS.len() as u32, resource: partials.as_entire_binding() });
         entries.push(wgpu::BindGroupEntry { binding: FIRST_VECTOR + 1 + VECTORS.len() as u32, resource: scal.as_entire_binding() });
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("krylov"), layout: &pipes.layout, entries: &entries });
-        let x = vectors.into_iter().next().ok_or_else(|| SimError::Internal("no x vector".into()))?;
         let x_best = empty("krylov x best", e * n as u64);
-        Ok(Krylov { device, queue, pipes, n, gx, gy, bind, b, x, x_best, scal })
+        Ok(Krylov { device, queue, pipes, mg, n, gx, gy, bind, b, vectors, x_best, scal })
     }
 
-    fn encode(&self, pass: &mut wgpu::ComputePass<'_>, kernels: &[&str]) -> Result<()> {
+    fn vector(&self, name: &str) -> Result<&wgpu::Buffer> {
+        VECTORS.iter().position(|v| *v == name).and_then(|k| self.vectors.get(k)).ok_or_else(|| SimError::Internal(format!("no vector {name}")))
+    }
+
+    fn x(&self) -> Result<&wgpu::Buffer> {
+        self.vector("x")
+    }
+
+    /// Encode a step: its kernels in compute passes, with each `precond_<a>_<b>` as a copy of
+    /// `a` into the multigrid, one V-cycle, and a copy of its answer into `b`.
+    fn encode(&self, enc: &mut wgpu::CommandEncoder, kernels: &[&str]) -> Result<()> {
+        let bytes = self.pipes.elem * self.n as u64;
+        let mut pass: Option<wgpu::ComputePass<'static>> = None;
         for k in kernels {
+            if let Some((src, dst)) = k.strip_prefix("precond_").and_then(|rest| rest.split_once('_')) {
+                drop(pass.take());
+                let (input, output) = (self.mg.input(), self.mg.output());
+                let (Some(input), Some(output)) = (input, output) else {
+                    return Err(SimError::Internal("the multigrid has no levels".into()));
+                };
+                enc.copy_buffer_to_buffer(self.vector(src)?, 0, input, 0, bytes);
+                {
+                    let mut cycle = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("krylov multigrid"), timestamp_writes: None });
+                    self.mg.encode(&mut cycle)?;
+                }
+                enc.copy_buffer_to_buffer(output, 0, self.vector(dst)?, 0, bytes);
+                continue;
+            }
             let (p, single) = self.pipes.pipelines.get(*k).ok_or_else(|| SimError::Internal(format!("no kernel {k}")))?;
+            let pass = pass.get_or_insert_with(|| {
+                let mut p = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("krylov"), timestamp_writes: None }).forget_lifetime();
+                p.set_bind_group(0, &self.bind, &[]);
+                p
+            });
             pass.set_pipeline(p);
             if *single {
                 pass.dispatch_workgroups(1, 1, 1);
@@ -420,6 +438,7 @@ impl<'a> Krylov<'a> {
                 pass.dispatch_workgroups(self.gx, self.gy, 1);
             }
         }
+        drop(pass);
         Ok(())
     }
 
@@ -457,6 +476,7 @@ impl<'a> Krylov<'a> {
             self.queue.submit([enc.finish()]);
         };
         let restart = if symmetric { CG_RESTART } else { BI_RESTART };
+        let x = self.x()?;
         let mut done = 0usize;
         let mut residual = f64::INFINITY;
         let mut best = f64::INFINITY;
@@ -467,15 +487,11 @@ impl<'a> Krylov<'a> {
         while done < max_iter {
             let k = BATCH.min(max_iter - done);
             let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("krylov batch") });
-            {
-                let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("krylov"), timestamp_writes: None });
-                pass.set_bind_group(0, &self.bind, &[]);
-                if first {
-                    self.encode(&mut pass, init)?;
-                }
-                for _ in 0..k {
-                    self.encode(&mut pass, step)?;
-                }
+            if first {
+                self.encode(&mut enc, init)?;
+            }
+            for _ in 0..k {
+                self.encode(&mut enc, step)?;
             }
             if first {
                 // The starting x = 0 is the first best (residual |b| = 1).
@@ -491,7 +507,7 @@ impl<'a> Krylov<'a> {
             }
             if residual.is_finite() && residual < best {
                 best = residual;
-                copy(&self.x, &self.x_best);
+                copy(x, &self.x_best);
                 if residual < tol {
                     converged = true;
                     break;
@@ -503,13 +519,9 @@ impl<'a> Krylov<'a> {
                 if restarts > 20 {
                     break;
                 }
-                copy(&self.x_best, &self.x);
+                copy(&self.x_best, x);
                 let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("krylov restart") });
-                {
-                    let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("krylov restart"), timestamp_writes: None });
-                    pass.set_bind_group(0, &self.bind, &[]);
-                    self.encode(&mut pass, restart)?;
-                }
+                self.encode(&mut enc, restart)?;
                 self.queue.submit([enc.finish()]);
             }
             if !progress("thermal", done, max_iter) {
@@ -518,10 +530,10 @@ impl<'a> Krylov<'a> {
         }
         if !converged {
             // Never hand back a diverged iterate: the best one, with its residual.
-            copy(&self.x_best, &self.x);
+            copy(&self.x_best, x);
             residual = best;
         }
-        let words = read(&self.x, e * self.n as u64)?;
+        let words = read(x, e * self.n as u64)?;
         let x: Vec<f64> = if e == 8 {
             words.as_chunks::<2>().0.iter().map(|w| f64::from_bits(u64::from(w[0].to_bits()) | (u64::from(w[1].to_bits()) << 32))).collect()
         } else {

@@ -12,7 +12,13 @@ The visible bodies are voxelised on a uniform grid over a domain box (the bodies
 plus a padding, or a box you set). Each cell is solid (one body) or air.
 
 **Temperature** is steady-state conjugate heat transfer on that grid: a 7-point
-finite-volume stencil solved with conjugate gradients (BiCGSTAB when air moves).
+finite-volume stencil solved with conjugate gradients (BiCGSTAB when air moves),
+preconditioned by geometric multigrid (`crates/sim/src/multigrid.rs`): cells aggregate
+2 × 2 × 2, the coarse operator is Galerkin with piecewise-constant prolongation (every level
+stays a 7-point M-matrix, whatever the conductivity jumps), red-black Gauss-Seidel smooths, and
+the cycle is symmetric so CG can use it. A Jacobi preconditioner was not enough: the 2 mm
+benchmark system (3.4 M cells) took thousands of BiCGSTAB iterations on the CPU and ran away on
+the GB10; with multigrid it converges in about a hundred.
 
 - Solids conduct with their material's conductivity: the built-in physical materials have
   textbook values (`material_conductivity` in `assets/materials/library.rs`); a design's own
@@ -74,10 +80,12 @@ entirely on the device: one population buffer with in-place AA-pattern streaming
 falls out of the slot swap), the two-relaxation-time collision with the Smagorinsky eddy
 viscosity and Guo forcing, fans as equilibrium cells, open walls as ambient equilibrium; a
 reduction kernel reports the change of the velocity field every 50 steps. The temperature
-system (7-point stencil) is solved on the device by conjugate gradients or BiCGSTAB with the
-stencil, vector updates and dot products as kernels and the recurrences on the host. On GPUs
-with doubles (`SHADER_F64`: NVIDIA, AMD, Intel, lavapipe) it runs in f64 like the CPU
-reference. Without doubles (Apple) it runs a symmetrically scaled f32 solve with f64
+system (7-point stencil) is solved on the device by conjugate gradients or BiCGSTAB, resident:
+vectors, the multigrid hierarchy and the scalar recurrences (ρ, α, ω) all stay on the GPU, a
+batch of 25 iterations is one submission, and the host reads back one residual per batch. The
+solver keeps the best iterate, restarts from it after a breakdown and never returns a diverged
+answer. On GPUs with doubles (`SHADER_F64`: NVIDIA, AMD, Intel, lavapipe) it runs in f64 like
+the CPU reference. Without doubles (Apple) it runs a symmetrically scaled f32 solve with f64
 refinement, and when that cannot carry a stiff system (metal beside air spans ten orders of
 conductance) the f64 CPU reference finishes the temperature solve and the report names it
 (`cpu-cg (GPU f32 insufficient)`); the airflow stays on the GPU. The summary reports the

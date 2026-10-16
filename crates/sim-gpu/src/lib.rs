@@ -8,10 +8,11 @@
 
 use std::sync::Mutex;
 
-use solidcraft_sim::{Accelerator, FlowFields, LatticeSetup, Progress, SimError, ThermalSolution, ThermalSystem};
+use solidcraft_sim::{Accelerator, FlowFields, LatticeSetup, Multigrid, Progress, SimError, Stencil, ThermalSolution, ThermalSystem};
 use wgpu::util::DeviceExt;
 
 mod krylov;
+mod multigrid;
 #[cfg(test)]
 mod tests;
 
@@ -21,7 +22,7 @@ const REDUCE_SHADER: &str = include_str!("reduce.wgsl");
 /// Lattice step kernel workgroup size (matches `lbm.wgsl`).
 const LBM_WG: u32 = 128;
 /// Reduction and solver kernels' workgroup size (matches `reduce.wgsl` and `solve.wgsl`).
-const VEC_WG: u32 = 256;
+pub(crate) const VEC_WG: u32 = 256;
 /// Workgroups along x per dispatch; the rest go along y.
 const MAX_GROUPS_X: u32 = 32768;
 /// Lattice steps encoded per submission; also the ring of parameter buffers.
@@ -44,7 +45,7 @@ fn internal(what: impl std::fmt::Display) -> SimError {
 }
 
 /// Workgroup counts (x, y) covering `n` items with workgroups of `wg`.
-fn groups(n: usize, wg: u32) -> Result<(u32, u32)> {
+pub(crate) fn groups(n: usize, wg: u32) -> Result<(u32, u32)> {
     let total = u32::try_from(n.div_ceil(wg as usize).max(1)).map_err(|_| SimError::TooLarge("too many cells for one dispatch".into()))?;
     let gx = total.min(MAX_GROUPS_X);
     let gy = total.div_ceil(gx);
@@ -68,8 +69,10 @@ struct Pipelines {
     reduce_layout: wgpu::BindGroupLayout,
     reduce: wgpu::ComputePipeline,
     solve32: krylov::KrylovPipes,
+    mg32: multigrid::MultigridPipes,
     /// The same kernels in f64, on devices with `SHADER_F64`.
     solve64: Option<krylov::KrylovPipes>,
+    mg64: Option<multigrid::MultigridPipes>,
 }
 
 /// The simulation backend on one GPU device.
@@ -206,6 +209,8 @@ impl GpuAccelerator {
         let reduce_layout = layout("solidcraft sim reduce", &[entry(0, UNIFORM), entry(1, READ), entry(2, READ), entry(3, READ), entry(4, WRITE)]);
         let solve32 = krylov::KrylovPipes::new(device, false);
         let solve64 = f64_ok.then(|| krylov::KrylovPipes::new(device, true));
+        let mg32 = multigrid::MultigridPipes::new(device, false);
+        let mg64 = f64_ok.then(|| multigrid::MultigridPipes::new(device, true));
         Pipelines {
             lbm_step: pipeline("solidcraft sim lbm step", &lbm_layout, &lbm, "step"),
             lbm_init: pipeline("solidcraft sim lbm init", &lbm_layout, &lbm, "init"),
@@ -213,7 +218,9 @@ impl GpuAccelerator {
             reduce: pipeline("solidcraft sim reduce", &reduce_layout, &reduce_mod, "reduce"),
             reduce_layout,
             solve32,
+            mg32,
             solve64,
+            mg64,
         }
     }
 
@@ -530,32 +537,30 @@ impl GpuAccelerator {
             report.converged = true;
             return Ok(report);
         }
-        let plane = st.nx * st.ny;
-        let neighbours = |idx: usize| [idx.wrapping_sub(1), idx + 1, idx.wrapping_sub(st.nx), idx + st.nx, idx.wrapping_sub(plane), idx + plane];
-        let side_major = |scale: Option<&[f64]>| -> Vec<f64> {
+        let side_major = |st: &Stencil| -> Vec<f64> {
             let mut off = vec![0.0f64; 6 * n];
             for (idx, o) in st.off.iter().enumerate() {
-                let nb = neighbours(idx);
-                let si = scale.and_then(|s| s.get(idx)).copied().unwrap_or(1.0);
                 for (side, v) in o.iter().enumerate() {
-                    let sj = match scale {
-                        Some(s) => nb.get(side).and_then(|j| s.get(*j)).copied().unwrap_or(0.0),
-                        None => 1.0,
-                    };
                     if let Some(slot) = off.get_mut(side * n + idx) {
-                        *slot = v * si * sj;
+                        *slot = *v;
                     }
                 }
             }
             off
         };
         let read = |b: &wgpu::Buffer, size: u64| self.read_f32(b, size);
+        let check = |bytes: u64, what: &str| self.check_size(bytes, what);
+        let trace = std::env::var_os("SOLIDCRAFT_SIM_DEBUG").is_some();
 
-        if let Some(pipes) = &self.pipelines.solve64 {
+        if let (Some(pipes), Some(mg_pipes)) = (&self.pipelines.solve64, &self.pipelines.mg64) {
             // Doubles on the device: the CPU algorithm as it is, one pass, resident on the GPU.
             self.check_size(8 * n as u64, "the thermal vectors")?;
-            let invdiag: Vec<f64> = st.diag.iter().map(|d| if d.abs() > 0.0 { 1.0 / d } else { 0.0 }).collect();
-            let k = krylov::Krylov::new(&self.device, &self.queue, pipes, st.nx, st.ny, &st.diag, &side_major(None), &invdiag, gx, gy)?;
+            let mg = Multigrid::new(st);
+            if trace {
+                eprintln!("  multigrid: {} levels", mg.levels());
+            }
+            let gmg = multigrid::GpuMultigrid::new(&self.device, mg_pipes, &mg, &check)?;
+            let k = krylov::Krylov::new(&self.device, &self.queue, pipes, &gmg, st.nx, st.ny, &st.diag, &side_major(st), gx, gy)?;
             let scaled: Vec<f64> = system.rhs.iter().map(|v| v / bnorm_true).collect();
             let solved = k.solve(&scaled, system.symmetric, system.tolerance, system.max_iterations, &read, progress)?;
             report.x = solved.x.into_iter().map(|v| v * bnorm_true).collect();
@@ -579,8 +584,30 @@ impl GpuAccelerator {
         let pipes = &self.pipelines.solve32;
         self.check_size(4 * n as u64, "the thermal vectors")?;
         let scale: Vec<f64> = st.diag.iter().map(|d| if d.abs() > 0.0 { 1.0 / d.abs().sqrt() } else { 1.0 }).collect();
-        let diag: Vec<f64> = st.diag.iter().zip(&scale).map(|(d, s)| d * s * s).collect();
-        let k = krylov::Krylov::new(&self.device, &self.queue, pipes, st.nx, st.ny, &diag, &side_major(Some(&scale)), &vec![1.0; n], gx, gy)?;
+        let plane = st.nx * st.ny;
+        let scaled = Stencil {
+            nx: st.nx,
+            ny: st.ny,
+            diag: st.diag.iter().zip(&scale).map(|(d, s)| d * s * s).collect(),
+            off: st
+                .off
+                .iter()
+                .enumerate()
+                .map(|(idx, o)| {
+                    let nb = [idx.wrapping_sub(1), idx + 1, idx.wrapping_sub(st.nx), idx + st.nx, idx.wrapping_sub(plane), idx + plane];
+                    let si = scale.get(idx).copied().unwrap_or(1.0);
+                    let mut row = [0.0; 6];
+                    for (side, v) in o.iter().enumerate() {
+                        let sj = nb.get(side).and_then(|j| scale.get(*j)).copied().unwrap_or(0.0);
+                        row[side] = v * si * sj;
+                    }
+                    row
+                })
+                .collect(),
+        };
+        let mg = Multigrid::new(&scaled);
+        let gmg = multigrid::GpuMultigrid::new(&self.device, &self.pipelines.mg32, &mg, &check)?;
+        let k = krylov::Krylov::new(&self.device, &self.queue, pipes, &gmg, st.nx, st.ny, &scaled.diag, &side_major(&scaled), gx, gy)?;
         let mut residual = system.rhs.clone();
         let mut ax = vec![0.0f64; n];
         let mut used = 0usize;
