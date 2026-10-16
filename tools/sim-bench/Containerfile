@@ -1,0 +1,44 @@
+# SolidCraft sim-bench for arm64 GPU nodes (DGX Spark / GB10); build with build.sh. Builds on any architecture
+# without emulation: the build stage runs natively and downloads the arm64 Vulkan loader with
+# apt multiarch; the final arm64 stage only copies files.
+FROM --platform=$BUILDPLATFORM docker.io/library/ubuntu:24.04 AS fetch
+RUN set -eux; \
+    . /etc/os-release; \
+    dpkg --add-architecture arm64; \
+    sed -i 's|^Types: deb$|Types: deb\nArchitectures: amd64|' /etc/apt/sources.list.d/ubuntu.sources; \
+    printf 'Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports/\nSuites: %s %s-updates\nComponents: main universe\nArchitectures: arm64\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' "$VERSION_CODENAME" "$VERSION_CODENAME" > /etc/apt/sources.list.d/arm64.sources; \
+    apt-get update; \
+    cd /tmp; \
+    # the Vulkan loader, and what NVIDIA's Vulkan ICD (libGLX_nvidia.so.0) links against
+    apt-get download libx11-6:arm64 libxext6:arm64 libxcb1:arm64 libxau6:arm64 \
+        libxdmcp6:arm64 libbsd0:arm64 libmd0:arm64 libx11-data strace:arm64 \
+        libglvnd0:arm64 libegl1:arm64; \
+    # the Vulkan loader NVIDIA's DGX OS ships (Canonical's vulkan-packages-nv-desktop PPA), matching
+    # the driver's Vulkan 1.4 ICD; Ubuntu 24.04's own loader is 1.3.275
+    apt-get install -y --no-install-recommends curl ca-certificates; \
+    curl -fsSL -o libvulkan1_1.4.328.1-1~1_arm64.deb \
+        "https://ppa.launchpadcontent.net/canonical-nvidia/vulkan-packages-nv-desktop/ubuntu/pool/main/v/vulkan-loader/libvulkan1_1.4.328.1-1~1_arm64.deb"; \
+    echo "a979b132012f7f358009243d798b7e4f56cbfe2d0ed46162f7ef821e0d5eafe0  libvulkan1_1.4.328.1-1~1_arm64.deb" | sha256sum -c -; \
+    mkdir /out; \
+    for d in /tmp/*.deb; do dpkg-deb -x "$d" /out; done; \
+    ls -la /out/usr/lib/aarch64-linux-gnu/
+
+FROM --platform=linux/arm64 docker.io/library/ubuntu:24.04
+COPY --from=fetch /out/usr/lib/aarch64-linux-gnu/ /usr/lib/aarch64-linux-gnu/
+COPY --from=fetch /out/usr/share/X11/ /usr/share/X11/
+# strace, for diagnosing what the driver opens (needs only libc and libgcc)
+COPY --from=fetch /out/usr/bin/strace /usr/bin/strace
+# LD_PRELOAD tracer of opens, stats, ioctls and sockets (trace/trace.c), where ptrace is not allowed
+COPY trace/libtrace.so /opt/trace/libtrace.so
+# step-by-step ICD loader (trace/icdprobe.c) and a shim defining the removed glibc malloc hooks
+COPY trace/icdprobe trace/libhooks.so /opt/trace/
+# Headless (no DISPLAY), NVIDIA's Vulkan driver initialises through EGL: it needs the GLVND
+# dispatcher libEGL.so.1 and a vendor file naming NVIDIA's EGL (the runtime may mount its own).
+COPY glvnd/10_nvidia.json /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+COPY solidcraft-cli /usr/local/bin/solidcraft-cli
+# The NVIDIA container runtime mounts the driver's Vulkan ICD only with the graphics capability.
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics \
+    NVIDIA_VISIBLE_DEVICES=all \
+    SOLIDCRAFT_GPU=hardware
+ENTRYPOINT ["/usr/local/bin/solidcraft-cli"]
+CMD ["sim-bench", "--cell", "2", "--steps", "3000"]

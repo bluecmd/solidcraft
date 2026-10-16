@@ -1,0 +1,24 @@
+# One sim-bench run on a time-shared GPU slice of an arm64 GPU node: no priority, nothing evicted.
+# Fill in the node, image and runtime class; copy the GPU tolerations the node's other GPU pods use.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sim-bench-NODE-CELL-RUN
+  namespace: sim-bench
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: NODE
+      tolerations: []
+      containers:
+        - name: bench
+          image: REGISTRY/solidcraft-sim-bench:TAG
+          args: ["sim-bench", "--cell", "CELL", "--steps", "3000", "--json-out", "/dev/stdout"]
+          resources:
+            requests: {nvidia.com/gpu: 1, cpu: "4", memory: 24Gi}
+            limits: {nvidia.com/gpu: 1, memory: 48Gi}
