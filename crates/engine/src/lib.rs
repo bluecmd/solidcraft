@@ -252,6 +252,9 @@ pub struct Session {
     /// What runs simulation solves: the GPU backend the application installs. Without one
     /// `sim.solve` refuses (a GPU is required); tests install the CPU reference.
     simulation_accelerator: Option<Arc<dyn solidcraft_sim::Accelerator>>,
+    /// Slices, pinned probes and streamline settings for exploring the last simulation
+    /// (`sim.slice`, `sim.probe.pin`, `sim.display`). View state, like `simulation`.
+    pub simulation_view: cmd::simulation_view::SimulationView,
     /// What is hidden or shown in the view (`browser.visibility`): saved with the design, not an
     /// undo step. A design brings its saved visibility when it opens (`Session::new`).
     pub visibility: Visibility,
@@ -342,6 +345,9 @@ pub enum SimulationDisplay {
     Temperature,
     /// Air velocity arrows (and temperatures on the bodies).
     Velocity,
+    /// Streamlines through the air from the fans and the inflow openings, coloured by speed
+    /// (and temperatures on the bodies).
+    Streamlines,
 }
 
 /// One seam measured by `inspect.continuity`, where the viewport shades it: the stations it was
@@ -413,6 +419,7 @@ impl Session {
             simulation: None,
             simulation_display: SimulationDisplay::default(),
             simulation_accelerator: None,
+            simulation_view: Default::default(),
             checkpoints: Vec::new(),
             next_checkpoint: 1,
             saved_visibility: visibility.clone(),
@@ -888,6 +895,7 @@ impl Session {
             simulation: None,
             simulation_display: SimulationDisplay::default(),
             simulation_accelerator: self.simulation_accelerator.clone(),
+            simulation_view: Default::default(),
             checkpoints: Vec::new(),
             next_checkpoint: 1,
             visibility: self.visibility.clone(),

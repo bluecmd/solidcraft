@@ -60,6 +60,7 @@ mod render;
 mod script_tests;
 mod sheet;
 pub mod simulation;
+pub mod simulation_view;
 mod sketch;
 pub(crate) use sketch::author_path_for_rebind;
 pub(crate) use sketch::created as sketch_created;
@@ -275,6 +276,7 @@ pub fn command_specs() -> Vec<&'static CommandSpec> {
     v.extend(diagnostics::COMMANDS.iter());
     v.extend(render::COMMANDS.iter());
     v.extend(simulation::COMMANDS.iter());
+    v.extend(simulation_view::COMMANDS.iter());
     v
 }
 

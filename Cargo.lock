@@ -4072,6 +4072,7 @@ dependencies = [
  "rustls",
  "serde_json",
  "solidcraft-engine",
+ "solidcraft-sim-gpu",
  "solidcraft-ui-egui",
  "ureq",
  "windows-sys 0.61.2",
@@ -4087,6 +4088,7 @@ dependencies = [
  "solidcraft-engine",
  "solidcraft-gpu",
  "solidcraft-mcp",
+ "solidcraft-sim-gpu",
 ]
 
 [[package]]
@@ -4110,6 +4112,7 @@ dependencies = [
  "solidcraft-geom",
  "solidcraft-kernel",
  "solidcraft-render",
+ "solidcraft-sim",
  "solidcraft-sketch",
  "thiserror 2.0.21",
  "web-time",
@@ -4127,6 +4130,7 @@ dependencies = [
  "solidcraft-io",
  "solidcraft-kernel",
  "solidcraft-render",
+ "solidcraft-sim",
  "solidcraft-sketch",
  "thiserror 2.0.21",
 ]
@@ -4216,6 +4220,31 @@ dependencies = [
  "sha2 0.10.9",
  "solidcraft-geom",
  "weezl",
+]
+
+[[package]]
+name = "solidcraft-sim"
+version = "0.14.0"
+dependencies = [
+ "rayon",
+ "serde",
+ "serde_json",
+ "solidcraft-geom",
+ "thiserror 2.0.21",
+ "web-time",
+]
+
+[[package]]
+name = "solidcraft-sim-gpu"
+version = "0.14.0"
+dependencies = [
+ "log",
+ "pollster 0.4.0",
+ "solidcraft-geom",
+ "solidcraft-gpu",
+ "solidcraft-sim",
+ "thiserror 2.0.21",
+ "wgpu",
 ]
 
 [[package]]

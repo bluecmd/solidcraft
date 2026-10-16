@@ -37,7 +37,7 @@ pub static COMMANDS: &[CommandSpec] = &[
     CommandSpec::new("sim.export", "Export Simulation (VTK)", export).noundo().doc_only().at("SIMULATION", "RESULTS").icon("box")
         .params("path: destination .vtk file (legacy VTK structured points: body, temperature, velocity, pressure per cell; opens in ParaView), overwrite?: false."),
     CommandSpec::new("sim.display", "Show Simulation", display).noundo().doc_only().at("SIMULATION", "RESULTS").icon("box")
-        .params("mode: off | temperature (colour map on the bodies) | velocity (air arrows and the colour map)."),
+        .params("mode?: off | temperature (colour map on the bodies) | velocity (air arrows and the colour map) | streamlines (lines through the air from the fans and inflow openings, coloured by speed, and the colour map), seeds?: streamline seeds 1..=512 (default 96), setup?: draw the study's setup glyphs (fans, heat sources, fixed temperatures, the domain) in pictures (default true)."),
 ];
 
 fn settings_mut(s: &mut Session) -> SimulationSettings {
@@ -624,13 +624,33 @@ fn export(s: &mut Session, params: &Value) -> Result<Value> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Display {
-    mode: SimulationDisplay,
+    #[serde(default)]
+    mode: Option<SimulationDisplay>,
+    /// Streamline seeds.
+    #[serde(default)]
+    seeds: Option<usize>,
+    /// Setup glyphs in pictures.
+    #[serde(default)]
+    setup: Option<bool>,
 }
 
 fn display(s: &mut Session, params: &Value) -> Result<Value> {
-    let request: Display = serde_json::from_value(params.clone()).map_err(|e| bad("sim.display", e.to_string()))?;
-    s.simulation_display = request.mode;
-    Ok(json!({"mode": request.mode, "solved": s.simulation.is_some()}))
+    let cmd = "sim.display";
+    let request: Display = serde_json::from_value(params.clone()).map_err(|e| bad(cmd, e.to_string()))?;
+    if let Some(n) = request.seeds {
+        let max = super::simulation_view::MAX_STREAMLINE_SEEDS;
+        if n == 0 || n > max {
+            return Err(bad(cmd, format!("`seeds` must be in 1..={max}")));
+        }
+        s.simulation_view.seeds = n;
+    }
+    if let Some(on) = request.setup {
+        s.simulation_view.setup = on;
+    }
+    if let Some(mode) = request.mode {
+        s.simulation_display = mode;
+    }
+    Ok(json!({"mode": s.simulation_display, "seeds": s.simulation_view.seeds, "setup": s.simulation_view.setup, "solved": s.simulation.is_some()}))
 }
 
 #[cfg(test)]

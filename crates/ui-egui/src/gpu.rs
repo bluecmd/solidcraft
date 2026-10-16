@@ -136,7 +136,7 @@ pub(crate) fn offscreen_backends() -> wgpu::Backends {
 /// A device of its own for an offscreen render or check (`None` without a GPU adapter), on
 /// [`offscreen_backends`].
 #[cfg(all(test, not(target_arch = "wasm32")))]
-fn offscreen_device() -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+pub(crate) fn offscreen_device() -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
     let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
     desc.backends = offscreen_backends();
     let instance = wgpu::Instance::new(desc);

@@ -93,7 +93,9 @@ temperatures to 0.05 K).
 | `sim.results {}` | The last solve's summary, `stale: true` once the geometry changed. |
 | `sim.probe {point}` | Temperature and air velocity at a world point. |
 | `sim.export {path, overwrite?}` | Legacy VTK (structured points: body, temperature, velocity, pressure) for ParaView. |
-| `sim.display {mode}` | `off`, `temperature` (colour map on the bodies) or `velocity` (arrows too). |
+| `sim.display {mode?, seeds?, setup?}` | `off`, `temperature` (colour map on the bodies), `velocity` (arrows too) or `streamlines` (lines through the air too); `seeds` streamline seeds (1–512, default 96); `setup` draws the setup glyphs in pictures (default on). |
+| `sim.slice {axis?, position?, field?, off?}` | A slice plane across the domain (one per axis); `off: true` or `axis: null` removes slices; `{}` lists them. |
+| `sim.probe.pin {point, body?}` / `sim.probe.delete {index \| all}` / `sim.probe.list` | Probes pinned to points, labelled in the view with their reading. |
 
 Study fields (`sim.study.set` → `set`): `cell_size_mm` (0 = about 60 cells along the
 domain's longest side), `domain {min, max}` or `padding_mm`, `bodies` (as `sim.body.set`),
@@ -123,6 +125,56 @@ for ParaView.
 Headless pictures (`solidcraft-cli snapshot`, `ui.render`, MCP screenshots) draw the same
 colour map and arrows while `sim.display` is on.
 
+## Exploring a result
+
+Everything below is view state: kept per open design while it is open, never saved and never
+an undo step. The viewport and headless pictures (`solidcraft-cli snapshot`, `ui.render`) draw
+it from the same geometry (`crates/engine/src/cmd/simulation_view.rs`).
+
+**Slice planes.** `sim.slice {axis: "z", position: 12, field: "temperature"}` cuts the domain
+at z = 12 mm and colours every cell the plane passes through, air and solids alike, so the
+inside of an enclosure shows: one flat quad per cell in the cell's own value (no smoothing,
+so a solid's edge stays where the voxels put it). Up to three slices, one per axis; setting an
+axis again moves or changes that slice. Without `position` a new slice goes through the middle
+of the solved domain. `field: "speed"` colours the air by speed from 0 to the fastest cell,
+with solid cells grey; it needs a solve with airflow. A plane finer than 65 536 cells is
+sampled every few cells (each quad then stands for a block of cells, coloured by its middle
+cell). In the viewport slices are translucent and unlit; in headless pictures they are opaque.
+The panel's **Slice planes** rows switch each axis on and off, drag its position and pick its
+field.
+
+*Colour scale.* Bodies alone use the bodies' own range (coolest to hottest surface). While a
+temperature slice is shown, bodies and slices share one scale widened to the whole grid's range,
+which takes in the air (usually down to the ambient): the legend then reads the same for both.
+The legend names each slice and, for a speed slice or streamlines, adds an air-speed bar.
+
+**Streamlines.** `sim.display {mode: "streamlines"}` traces lines through the solved air:
+seeded across each fan on the mid-plane of its region (traced both up- and downstream, so a
+line shows where the fan draws air from and where it sends it) and on the air cells of open
+walls where air flows in (traced downstream). Integration is fourth-order Runge–Kutta in steps
+of half a cell along the trilinearly interpolated velocity; a line stops at a solid, at the
+domain wall, where the air is slower than 1 % of the fastest cell, or at a step cap. Lines are
+coloured by local speed. `seeds` (at most 512) bounds the count; all lines together hold at
+most 200 000 points. The sampling helpers live in `crates/sim/src/sample.rs`
+(`temperature_smooth`, `velocity_smooth`, `streamline`, `inflow_seeds`, `fan_seeds`).
+
+**Probes.** In the Simulation workspace, hovering a solved body shows its surface temperature
+under the pointer ("Chip · 63.4 °C", the value the colour map shows there); where no body is
+under the pointer but a slice is, the reading is the slice cell's temperature and air speed.
+A click pins a probe (`sim.probe.pin`): a dot with its label in the view, and a row with a
+delete button in the panel's **Probes** list. In this workspace a click probes instead of
+selecting.
+
+**Setup glyphs.** While the Simulation workspace is open, the study being edited is drawn in
+the model view: each fan's region as a translucent box with an arrow along its air and its name
+and speed, a "⚡ 3 W" badge on each heat source, a "❄ 20 °C" badge on each body held at a fixed
+temperature, and the domain box as a dashed outline. Clicking a fan's label opens it in the
+panel's Fans list. Headless pictures draw the lines (no labels) of the solved study while
+`setup` is on.
+
+**Results table.** The panel lists the bodies hottest first with a swatch of each body's
+maximum on the colour scale. Clicking a row frames the body and pins a probe at its hottest cell.
+
 ## Example
 
 ```sh
@@ -132,6 +184,15 @@ solidcraft-cli snapshot examples/simulation-enclosure.json --out enclosure.png -
 A 3 W chip and a 1 W regulator on an aluminium plate in free air: the chip's temperature
 comes out at about 25 °C + 4 W / (8 W/m²K × plate area) ≈ 75 °C, as the film coefficient
 predicts for a plate that spreads the heat well.
+
+```sh
+solidcraft-cli snapshot examples/simulation-airflow.json --out airflow.png --view iso
+```
+
+A small server-like chassis with its sides, floor and lid closed and its front and back open:
+a fan behind the front opening blows 3 m/s along X over a 20 W CPU with a finned heat sink,
+two memory modules and a power supply. The picture shows streamlines and a temperature slice
+at z = 12 mm.
 
 ## Choosing settings
 
