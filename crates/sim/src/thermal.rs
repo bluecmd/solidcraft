@@ -14,6 +14,7 @@ use crate::grid::{FLUID, Grid};
 use crate::linsolve::Stencil;
 use crate::problem::{Problem, Wall};
 use crate::voxel::Voxels;
+use crate::zones::{ZONE_AIR, ZONE_SOLID, fluid_of};
 use crate::{Progress, Result, SimError};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -38,13 +39,14 @@ fn wall(problem: &Problem, side: usize) -> Wall {
 pub(crate) fn solve(
     grid: &Grid,
     voxels: &Voxels,
+    zones: &[u16],
     problem: &Problem,
     flow: Option<&FlowReport>,
     backend: &dyn Accelerator,
     progress: Progress,
 ) -> Result<ThermalReport> {
     let n = grid.len();
-    if voxels.label.len() != n {
+    if voxels.label.len() != n || zones.len() != n {
         return Err(SimError::Invalid("voxel labels do not match the grid".into()));
     }
     for (b, body) in problem.bodies.iter().enumerate() {
@@ -57,24 +59,43 @@ pub(crate) fn solve(
     }
     let d = grid.dx_m();
     let area = d * d;
-    let h = problem.thermal.film_coefficient;
     let ambient = problem.thermal.ambient_c;
-    let rho_cp = problem.air.density * problem.air.specific_heat;
-    // Still air mixes by the study's factor; moving air carries heat by advection plus the eddy
-    // diffusivity that goes with the viscosity the flow was solved with (turbulent Prandtl 0.9).
-    let k_air = match flow {
-        None => problem.air.conductivity * problem.air.mixing_factor,
-        Some(f) => problem.air.conductivity.max(rho_cp * f.effective_viscosity / 0.9),
-    };
+    // Per fluid zone: the conductivity its cells conduct with (still fluid mixes by its factor;
+    // moving fluid carries heat by advection plus the eddy diffusivity that goes with the
+    // viscosity it was solved with, turbulent Prandtl 0.9), its heat capacity, and its film
+    // coefficient against solids.
+    let zone_count = problem.fluids.len() + 1;
+    let mut zone_k = vec![0.0f64; zone_count];
+    let mut zone_rho_cp = vec![0.0f64; zone_count];
+    let mut zone_h = vec![0.0f64; zone_count];
+    for z in 0..zone_count {
+        let Some(fluid) = fluid_of(problem, z as u16) else { continue };
+        let rho_cp = fluid.density * fluid.specific_heat;
+        zone_rho_cp[z] = rho_cp;
+        zone_h[z] = fluid.film_coefficient.unwrap_or(problem.thermal.film_coefficient);
+        zone_k[z] = match flow.and_then(|f| f.zone_viscosity(z as u16)) {
+            None => fluid.conductivity * fluid.mixing_factor,
+            Some(nu) => fluid.conductivity.max(rho_cp * nu / 0.9),
+        };
+    }
+    let zone = |idx: usize| zones.get(idx).copied().unwrap_or(ZONE_SOLID);
+    let is_fluid = |idx: usize| zone(idx) != ZONE_SOLID;
+    let zone_prop = |v: &[f64], idx: usize| -> f64 { v.get(zone(idx) as usize).copied().unwrap_or(0.0) };
 
     // conductivity, fixed temperature and source per cell
     let conductivity = |idx: usize| -> f64 {
+        if is_fluid(idx) {
+            return zone_prop(&zone_k, idx);
+        }
         match voxels.label.get(idx) {
-            Some(&FLUID) | None => k_air,
-            Some(&b) => problem.bodies.get(b as usize).map_or(k_air, |body| body.conductivity),
+            Some(&FLUID) | None => zone_prop(&zone_k, idx),
+            Some(&b) => problem.bodies.get(b as usize).map_or(0.2, |body| body.conductivity),
         }
     };
     let fixed = |idx: usize| -> Option<f64> {
+        if is_fluid(idx) {
+            return None;
+        }
         match voxels.label.get(idx) {
             Some(&FLUID) | None => None,
             Some(&b) => problem.bodies.get(b as usize).and_then(|body| body.fixed_temperature_c),
@@ -82,38 +103,41 @@ pub(crate) fn solve(
     };
     // Half-cell conductance from a cell centre to its face, W/K.
     let half = |k: f64| 2.0 * k * d;
-    let film = h * area;
-    // Conductance across the face between two cells.
+    let series = |x: f64, y: f64| if x > 0.0 && y > 0.0 { 1.0 / (1.0 / x + 1.0 / y) } else { 0.0 };
+    // Conductance across the face between two cells: half-cells in series; at a solid/fluid face
+    // the fluid's half-cell gives way to its film coefficient.
     let between = |a: usize, b: usize| -> f64 {
         let (ka, kb) = (conductivity(a), conductivity(b));
-        let (sa, sb) = (voxels.is_solid(a), voxels.is_solid(b));
-        let series = |x: f64, y: f64| if x > 0.0 && y > 0.0 { 1.0 / (1.0 / x + 1.0 / y) } else { 0.0 };
-        match (sa, sb) {
-            (true, true) | (false, false) => series(half(ka), half(kb)),
-            (true, false) => {
-                if h > 0.0 {
-                    series(half(ka), film)
-                } else {
-                    series(half(ka), half(kb))
-                }
-            }
+        match (is_fluid(a), is_fluid(b)) {
+            (false, false) | (true, true) => series(half(ka), half(kb)),
             (false, true) => {
-                if h > 0.0 {
-                    series(half(kb), film)
-                } else {
-                    series(half(ka), half(kb))
-                }
+                let h = zone_prop(&zone_h, b);
+                if h > 0.0 { series(half(ka), h * area) } else { series(half(ka), half(kb)) }
+            }
+            (true, false) => {
+                let h = zone_prop(&zone_h, a);
+                if h > 0.0 { series(half(kb), h * area) } else { series(half(ka), half(kb)) }
             }
         }
     };
-    // Conductance from a boundary cell to the ambient through an open wall.
+    // Conductance from a boundary cell to the ambient through an open wall: air cells meet the
+    // ambient directly, solid cells through the air's film; a coolant never reaches the wall.
     let to_ambient = |idx: usize| -> f64 {
         let k = conductivity(idx);
-        if voxels.is_solid(idx) && h > 0.0 { 1.0 / (1.0 / half(k) + 1.0 / film) } else { half(k) }
+        match zone(idx) {
+            ZONE_AIR => half(k),
+            ZONE_SOLID => {
+                let h = problem.thermal.film_coefficient;
+                if h > 0.0 { series(half(k), h * area) } else { half(k) }
+            }
+            _ => 0.0,
+        }
     };
     let velocity =
         |idx: usize| -> [f64; 3] { flow.and_then(|f| f.velocity.get(idx)).map_or([0.0; 3], |v| [f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]) };
-    let is_air = |idx: usize| voxels.label.get(idx).is_some_and(|l| *l == FLUID);
+    // Advection carries heat between cells of the same fluid zone.
+    let advects = |a: usize, b: usize| flow.is_some() && is_fluid(a) && zone(a) == zone(b);
+    let rho_cp_of = |idx: usize| zone_prop(&zone_rho_cp, idx);
 
     let mut diag = vec![0.0; n];
     let mut off = vec![[0.0; 6]; n];
@@ -142,10 +166,10 @@ pub(crate) fn solve(
                     // advection across a fluid/fluid face: upwind
                     let mut out_flux = 0.0;
                     let mut in_flux = 0.0;
-                    if flow.is_some() && is_air(idx) && is_air(j) {
+                    if advects(idx, j) {
                         let u_j = velocity(j);
                         let un = 0.5 * (u_i[AXIS[side]] + u_j[AXIS[side]]) * SIGN[side];
-                        let flux = rho_cp * un * area; // W/K leaving idx through this face when positive
+                        let flux = rho_cp_of(idx) * un * area; // W/K leaving idx through this face when positive
                         out_flux = flux.max(0.0);
                         in_flux = (-flux).max(0.0);
                     }
@@ -164,9 +188,9 @@ pub(crate) fn solve(
                             any_dirichlet = true;
                         }
                         dsum += g;
-                        if flow.is_some() && is_air(idx) {
+                        if flow.is_some() && zone(idx) == ZONE_AIR {
                             let un = u_i[AXIS[side]] * SIGN[side];
-                            let flux = rho_cp * un * area;
+                            let flux = rho_cp_of(idx) * un * area;
                             dsum += flux.max(0.0);
                         }
                     }
@@ -225,9 +249,9 @@ pub(crate) fn solve(
                 None => {
                     if wall(problem, side) == Wall::Open {
                         heat_out += to_ambient(idx) * t_i;
-                        if flow.is_some() && is_air(idx) {
+                        if flow.is_some() && zone(idx) == ZONE_AIR {
                             let un = u_i[AXIS[side]] * SIGN[side];
-                            let flux = rho_cp * un * area;
+                            let flux = rho_cp_of(idx) * un * area;
                             heat_out += flux.max(0.0) * t_i;
                         }
                     }

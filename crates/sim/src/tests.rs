@@ -30,7 +30,7 @@ fn boxed(name: &str, min: [f64; 3], max: [f64; 3], k: f64, power: f64) -> SolidB
         [1, 2, 6],
         [1, 6, 5], // +x
     ];
-    SolidBody { name: name.into(), positions, triangles, conductivity: k, power_w: power, fixed_temperature_c: None }
+    SolidBody { name: name.into(), positions, triangles, conductivity: k, power_w: power, fixed_temperature_c: None, fluid: None }
 }
 
 fn domain(min: [f64; 3], max: [f64; 3]) -> Aabb3 {
@@ -44,6 +44,7 @@ fn problem(domain: Aabb3, cell: f64, bodies: Vec<SolidBody>) -> Problem {
         bodies,
         walls: [Wall::Open; 6],
         air: Air::default(),
+        fluids: Vec::new(),
         thermal: Thermal::default(),
         fans: Vec::new(),
         flow: None,
@@ -304,4 +305,60 @@ fn debug_duct() {
         env("SIM_FAN", -11.0),
         out.join(" | ")
     );
+}
+
+/// A water loop (four legs of coolant, a pump in one) over a hot copper block: the pump moves
+/// the water around the loop, the water picks the heat up at the block and the block runs
+/// cooler than with the water standing still.
+#[test]
+fn a_pumped_water_loop_cools_a_block() {
+    let mut water = |name: &str, min: [f64; 3], max: [f64; 3]| {
+        let mut b = boxed(name, min, max, 0.6, 0.0);
+        b.fluid = Some(0);
+        b
+    };
+    let legs = vec![
+        water("leg_a", [10.0, 6.0, 14.0], [90.0, 12.0, 20.0]),
+        water("leg_b", [10.0, 28.0, 14.0], [90.0, 34.0, 20.0]),
+        water("leg_c", [10.0, 6.0, 14.0], [16.0, 34.0, 20.0]),
+        water("leg_d", [84.0, 6.0, 14.0], [90.0, 34.0, 20.0]),
+    ];
+    let block = boxed("block", [40.0, 6.0, 6.0], [60.0, 14.0, 14.0], 385.0, 2.0);
+    let mut bodies = legs;
+    bodies.push(block);
+    let mut p = problem(domain([0.0, 0.0, 0.0], [100.0, 40.0, 30.0]), 2.0, bodies);
+    p.fluids.push(Fluid::water());
+    p.air.mixing_factor = 10.0;
+    p.fans.push(Fan { name: "pump".into(), region: domain([30.0, 6.0, 14.0], [36.0, 12.0, 20.0]), velocity: Vec3::new(0.5, 0.0, 0.0) });
+    // still water first (no flow solve at all)
+    let still = solve(&p, &mut go()).unwrap();
+    assert_eq!(still.summary.fluids.len(), 2, "{:?}", still.summary.fluids);
+    assert_eq!(still.summary.fluids[1].name, "fluid1");
+    // then pumped
+    p.flow = Some(FlowSettings { max_steps: 2000, buoyancy: false, ..Default::default() });
+    let r = solve(&p, &mut go()).unwrap();
+    let f = r.flow.as_ref().unwrap();
+    assert_eq!(f.zones.len(), 2, "{:?}", f.zones);
+    let water_run = &f.zones[1];
+    assert!(water_run.max_lattice_speed < 0.3, "{water_run:?}");
+    // water moves along leg A past the pump and comes back along leg B
+    let a = r.velocity_at(Vec3::new(70.0, 9.0, 17.0)).unwrap();
+    let b = r.velocity_at(Vec3::new(50.0, 31.0, 17.0)).unwrap();
+    assert!(a.x > 0.1, "leg A flows +x: {a:?}");
+    assert!(b.x < -0.1, "leg B flows -x: {b:?}");
+    assert_eq!(r.zone_at(Vec3::new(70.0, 9.0, 17.0)), Some(1));
+    assert_eq!(r.zone_at(Vec3::new(50.0, 10.0, 10.0)), Some(solidcraft_sim_zone_solid()));
+    assert_eq!(r.zone_at(Vec3::new(5.0, 2.0, 2.0)), Some(0));
+    // the air zone never carries the pump: nothing blows outside the loop
+    let air = r.velocity_at(Vec3::new(5.0, 20.0, 5.0)).unwrap();
+    assert!(air.len() < 0.05, "{air:?}");
+    let (hot_still, hot) = (still.summary.bodies[4].max_c, r.summary.bodies[4].max_c);
+    assert!(hot < hot_still - 2.0, "pumped {hot} vs still {hot_still}");
+    let water = &r.summary.fluids[1];
+    assert!(water.max_c > water.min_c + 0.5 && water.max_speed_m_s > 0.3, "{water:?}");
+    assert!(write_vtk(&r).contains("SCALARS zone int 1"));
+}
+
+fn solidcraft_sim_zone_solid() -> u16 {
+    crate::zones::ZONE_SOLID
 }

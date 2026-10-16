@@ -20,7 +20,7 @@ fn boxed(name: &str, min: [f64; 3], max: [f64; 3], k: f64, power: f64) -> SolidB
     ];
     let triangles =
         vec![[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [2, 3, 7], [2, 7, 6], [0, 4, 7], [0, 7, 3], [1, 2, 6], [1, 6, 5]];
-    SolidBody { name: name.into(), positions, triangles, conductivity: k, power_w: power, fixed_temperature_c: None }
+    SolidBody { name: name.into(), positions, triangles, conductivity: k, power_w: power, fixed_temperature_c: None, fluid: None }
 }
 
 fn domain(min: [f64; 3], max: [f64; 3]) -> Aabb3 {
@@ -34,6 +34,7 @@ fn problem(domain: Aabb3, cell: f64, bodies: Vec<SolidBody>) -> Problem {
         bodies,
         walls: [Wall::Open; 6],
         air: Air::default(),
+        fluids: Vec::new(),
         thermal: Thermal::default(),
         fans: Vec::new(),
         flow: None,
@@ -221,4 +222,43 @@ fn single_precision_path_refines_or_admits_defeat() {
     assert!(dev.summary.thermal_method.contains("cpu-cg (GPU f32 insufficient)"), "{}", dev.summary.thermal_method);
     let (a, b) = (cpu.summary.bodies[0].mean_c, dev.summary.bodies[0].mean_c);
     assert!((a - b).abs() < 0.01, "{a} vs {b}");
+}
+
+/// Two lattices (air and water) on the device agree with the CPU reference.
+#[test]
+fn water_loop_matches_the_cpu_reference() {
+    let Some(gpu) = gpu() else { return };
+    let water = |name: &str, min: [f64; 3], max: [f64; 3]| {
+        let mut b = boxed(name, min, max, 0.6, 0.0);
+        b.fluid = Some(0);
+        b
+    };
+    let bodies = vec![
+        water("leg_a", [10.0, 6.0, 14.0], [90.0, 12.0, 20.0]),
+        water("leg_b", [10.0, 28.0, 14.0], [90.0, 34.0, 20.0]),
+        water("leg_c", [10.0, 6.0, 14.0], [16.0, 34.0, 20.0]),
+        water("leg_d", [84.0, 6.0, 14.0], [90.0, 34.0, 20.0]),
+        boxed("block", [40.0, 6.0, 6.0], [60.0, 14.0, 14.0], 385.0, 2.0),
+    ];
+    let mut p = problem(domain([0.0, 0.0, 0.0], [100.0, 40.0, 30.0]), 2.0, bodies);
+    p.fluids.push(solidcraft_sim::Fluid::water());
+    p.fans.push(Fan { name: "pump".into(), region: domain([30.0, 6.0, 14.0], [36.0, 12.0, 20.0]), velocity: Vec3::new(0.5, 0.0, 0.0) });
+    p.flow = Some(FlowSettings { max_steps: 1500, buoyancy: false, tolerance: 1e-9, ..Default::default() });
+    let cpu = solve_with(&p, &CpuAccelerator, &mut go()).unwrap();
+    let dev = solve_with(&p, &gpu, &mut go()).unwrap();
+    assert_eq!(dev.summary.fluids.len(), 2);
+    let (fc, fd) = (cpu.flow.as_ref().unwrap(), dev.flow.as_ref().unwrap());
+    assert_eq!(fc.zones.len(), fd.zones.len());
+    let (mut num, mut den) = (0.0f64, 0.0f64);
+    for (a, b) in fc.velocity.iter().zip(&fd.velocity) {
+        for k in 0..3 {
+            num += f64::from((a[k] - b[k]) * (a[k] - b[k]));
+            den += f64::from(a[k] * a[k]);
+        }
+    }
+    let rel = (num / den).sqrt();
+    assert!(rel < 1e-3, "velocity fields differ by {rel} (relative L2)");
+    let worst = cpu.thermal.temperature.iter().zip(&dev.thermal.temperature).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(worst < 0.1, "largest temperature difference {worst} K");
+    assert!(dev.summary.fluids[1].max_speed_m_s > 0.3, "{:?}", dev.summary.fluids);
 }

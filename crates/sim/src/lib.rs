@@ -24,12 +24,13 @@ mod results;
 mod thermal;
 mod voxel;
 mod vtk;
+pub mod zones;
 
 pub use backend::{Accelerator, CpuAccelerator, FlowFields, LatticeSetup, ThermalSolution, ThermalSystem};
-pub use flow::{FlowReport, FlowSettings, Units};
+pub use flow::{FlowReport, FlowSettings, Units, ZoneFlow};
 pub use grid::{FLUID, Grid, Ijk};
 pub use linsolve::Stencil;
-pub use problem::{Air, Fan, Limits, Problem, SolidBody, Thermal, Wall};
+pub use problem::{Air, Fan, Fluid, Limits, Problem, SolidBody, Thermal, Wall};
 pub use results::{BodyReport, Results, Summary};
 pub use thermal::ThermalReport;
 pub use voxel::{Voxels, voxelize};
@@ -71,24 +72,25 @@ pub fn solve_with(problem: &Problem, backend: &dyn Accelerator, progress: Progre
         return Err(SimError::Cancelled);
     }
     let voxels = voxelize(&grid, &problem.bodies)?;
+    let zones = zones::zones(&voxels, problem);
     let (thermal, flow) = match &problem.flow {
-        None => (thermal::solve(&grid, &voxels, problem, None, backend, progress)?, None),
+        None => (thermal::solve(&grid, &voxels, &zones, problem, None, backend, progress)?, None),
         Some(settings) if !settings.buoyancy => {
-            let flow = flow::solve(&grid, &voxels, problem, settings, None, backend, progress)?;
-            (thermal::solve(&grid, &voxels, problem, Some(&flow), backend, progress)?, Some(flow))
+            let flow = flow::solve(&grid, &zones, problem, settings, None, backend, progress)?;
+            (thermal::solve(&grid, &voxels, &zones, problem, Some(&flow), backend, progress)?, Some(flow))
         }
         Some(settings) => {
-            let mut thermal = thermal::solve(&grid, &voxels, problem, None, backend, progress)?;
+            let mut thermal = thermal::solve(&grid, &voxels, &zones, problem, None, backend, progress)?;
             let mut flow = None;
             for _ in 0..settings.coupling_iterations {
-                let f = flow::solve(&grid, &voxels, problem, settings, Some(&thermal.temperature), backend, progress)?;
-                thermal = thermal::solve(&grid, &voxels, problem, Some(&f), backend, progress)?;
+                let f = flow::solve(&grid, &zones, problem, settings, Some(&thermal.temperature), backend, progress)?;
+                thermal = thermal::solve(&grid, &voxels, &zones, problem, Some(&f), backend, progress)?;
                 flow = Some(f);
             }
             (thermal, flow)
         }
     };
-    Ok(Results::new(grid, voxels, problem, thermal, flow))
+    Ok(Results::new(grid, voxels, zones, problem, thermal, flow))
 }
 
 /// Shared helper: a finite, in-range number from hostile input.

@@ -23,6 +23,11 @@ pub fn write_vtk(results: &Results) -> String {
     for l in &results.voxels.label {
         let _ = writeln!(s, "{}", if *l == FLUID { -1 } else { *l as i64 });
     }
+    let _ = writeln!(s, "SCALARS zone int 1");
+    let _ = writeln!(s, "LOOKUP_TABLE default");
+    for z in &results.zones {
+        let _ = writeln!(s, "{}", if *z == crate::zones::ZONE_SOLID { -1 } else { i64::from(*z) });
+    }
     let _ = writeln!(s, "SCALARS temperature float 1");
     let _ = writeln!(s, "LOOKUP_TABLE default");
     for t in &results.thermal.temperature {

@@ -14,9 +14,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::backend::{Accelerator, CELL_AIR, CELL_FAN, CELL_SOLID, FAN_SHIFT, LatticeSetup};
-use crate::grid::{FLUID, Grid};
+use crate::grid::Grid;
 use crate::problem::{Problem, Wall};
-use crate::voxel::Voxels;
+use crate::zones::{ZONE_AIR, ZONE_SOLID, fluid_of, zone_name};
 use crate::{Progress, Result, SimError, finite};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -76,12 +76,12 @@ impl FlowSettings {
     }
 }
 
+/// One fluid zone's run.
 #[derive(Clone, Debug, PartialEq)]
-pub struct FlowReport {
-    /// m/s per grid cell (zero in solids).
-    pub velocity: Vec<[f32; 3]>,
-    /// Pa relative to ambient, per grid cell.
-    pub pressure: Vec<f32>,
+pub struct ZoneFlow {
+    pub zone: u16,
+    pub name: String,
+    pub cells: usize,
     pub steps: usize,
     pub converged: bool,
     /// Last relative change of the velocity field.
@@ -90,13 +90,39 @@ pub struct FlowReport {
     pub dt: f64,
     /// Fastest lattice speed seen (stability needs it well below 0.3).
     pub max_lattice_speed: f64,
-    pub air_cells: usize,
-    /// The kinematic viscosity the air was solved with, m²/s (molecular, or raised for the grid).
+    /// The kinematic viscosity the zone was solved with, m²/s (molecular, or raised for the grid).
     pub effective_viscosity: f64,
-    /// What stepped the lattice.
-    pub backend: String,
-    /// Million lattice (air-cell) updates per second over the run.
+    /// Million lattice updates per second.
     pub mlups: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FlowReport {
+    /// m/s per grid cell (zero in solids).
+    pub velocity: Vec<[f32; 3]>,
+    /// Pa relative to ambient (or to the zone's mean), per grid cell.
+    pub pressure: Vec<f32>,
+    /// The air's run (zone 0); the fields below repeat it for convenience.
+    pub steps: usize,
+    pub converged: bool,
+    pub change: f64,
+    pub dt: f64,
+    pub max_lattice_speed: f64,
+    pub air_cells: usize,
+    pub effective_viscosity: f64,
+    /// What stepped the lattices.
+    pub backend: String,
+    /// Million lattice (air-cell) updates per second over the air's run.
+    pub mlups: f64,
+    /// Every zone that had cells, air first.
+    pub zones: Vec<ZoneFlow>,
+}
+
+impl FlowReport {
+    /// The viscosity a zone was solved with, if it was.
+    pub fn zone_viscosity(&self, zone: u16) -> Option<f64> {
+        self.zones.iter().find(|z| z.zone == zone).map(|z| z.effective_viscosity)
+    }
 }
 
 /// Lattice ↔ physical unit conversion of one run.
@@ -110,60 +136,93 @@ pub struct Units {
     pub p_scale: f64,
 }
 
-/// The lattice of a problem, in lattice units, with the unit conversion.
-pub fn setup(grid: &Grid, voxels: &Voxels, problem: &Problem, settings: &FlowSettings, temperature: Option<&[f64]>) -> Result<(LatticeSetup, Units)> {
+/// The lattice of one fluid zone, in lattice units, with the unit conversion; `None` when the
+/// zone has no cells.
+pub fn setup(
+    grid: &Grid,
+    zones: &[u16],
+    problem: &Problem,
+    settings: &FlowSettings,
+    temperature: Option<&[f64]>,
+    zone: u16,
+) -> Result<Option<(LatticeSetup, Units)>> {
     settings.validate()?;
+    let n = grid.len();
+    if zones.len() != n {
+        return Err(SimError::Invalid("zones do not match the grid".into()));
+    }
+    let Some(fluid) = fluid_of(problem, zone) else { return Ok(None) };
     let dx = grid.dx_m();
-    // Fastest physical speed to expect: fans, or a buoyant plume scale.
-    let fan_max = problem.fans.iter().map(|f| f.velocity.len()).fold(0.0, f64::max);
-    let height = (grid.nz as f64) * dx;
-    let plume = (9.81 * problem.air.thermal_expansion * 30.0 * height.max(0.01)).sqrt();
+    // Which fans drive cells of this zone, and the zone's extent (for the plume scale).
+    let mut fan_hit = vec![false; problem.fans.len()];
+    let mut kmin = usize::MAX;
+    let mut kmax = 0usize;
+    let mut cells = 0usize;
+    let mut fan_of = vec![u32::MAX; n];
+    for idx in 0..n {
+        if zones.get(idx) != Some(&zone) {
+            continue;
+        }
+        cells += 1;
+        let c = grid.coords(idx);
+        kmin = kmin.min(c[2]);
+        kmax = kmax.max(c[2]);
+        let centre = grid.centre(c);
+        for (fi, f) in problem.fans.iter().enumerate() {
+            let r = &f.region;
+            if centre.x >= r.min.x && centre.x <= r.max.x && centre.y >= r.min.y && centre.y <= r.max.y && centre.z >= r.min.z && centre.z <= r.max.z
+            {
+                fan_of[idx] = fi as u32;
+                if let Some(h) = fan_hit.get_mut(fi) {
+                    *h = true;
+                }
+                break;
+            }
+        }
+    }
+    if cells == 0 {
+        return Ok(None);
+    }
+    let fan_max = problem.fans.iter().zip(&fan_hit).filter(|(_, h)| **h).map(|(f, _)| f.velocity.len()).fold(0.0, f64::max);
+    let height = ((kmax + 1 - kmin) as f64) * dx;
+    let plume = (9.81 * fluid.thermal_expansion * 30.0 * height.max(0.01)).sqrt();
     let u_ref = if fan_max > 0.0 { fan_max.max(plume * 0.5) } else { plume.max(0.05) };
     let dt = settings.lattice_velocity * dx / u_ref;
     let u_scale = dt / dx;
-    let nu_lat = problem.air.kinematic_viscosity * dt / (dx * dx);
+    let nu_lat = fluid.kinematic_viscosity * dt / (dx * dx);
     // Eddy-viscosity floor: the grid Reynolds number u·dx/ν stays below the limit.
     let nu_floor = settings.lattice_velocity / settings.max_cell_reynolds;
     let nu_used = nu_lat.max(nu_floor);
     let effective_viscosity = nu_used * dx * dx / dt;
     let tau0 = (3.0 * nu_used + 0.5) as f32;
-    let g_lat = (9.81 * problem.air.thermal_expansion * dt * dt / dx) as f32;
-    let p_scale = problem.air.density * (dx / dt) * (dx / dt) / 3.0;
-
-    let n = grid.len();
-    if voxels.label.len() != n {
-        return Err(SimError::Invalid("voxel labels do not match the grid".into()));
-    }
-    let mut flags = vec![CELL_SOLID; n];
-    let mut fans: Vec<[f32; 3]> = Vec::with_capacity(problem.fans.len());
-    for f in &problem.fans {
-        let v = f.velocity * u_scale;
-        fans.push([v.x as f32, v.y as f32, v.z as f32]);
-    }
-    let mut air = 0usize;
-    for (idx, flag) in flags.iter_mut().enumerate() {
-        if voxels.label.get(idx) != Some(&FLUID) {
-            continue;
-        }
-        air += 1;
-        let centre = grid.centre(grid.coords(idx));
-        *flag = CELL_AIR;
-        for (fi, f) in problem.fans.iter().enumerate() {
-            let r = &f.region;
-            if centre.x >= r.min.x && centre.x <= r.max.x && centre.y >= r.min.y && centre.y <= r.max.y && centre.z >= r.min.z && centre.z <= r.max.z
-            {
-                *flag = CELL_FAN | ((fi as u32) << FAN_SHIFT);
-                break;
+    let g_lat = (9.81 * fluid.thermal_expansion * dt * dt / dx) as f32;
+    let p_scale = fluid.density * (dx / dt) * (dx / dt) / 3.0;
+    let fans: Vec<[f32; 3]> = problem
+        .fans
+        .iter()
+        .map(|f| {
+            let v = f.velocity * u_scale;
+            [v.x as f32, v.y as f32, v.z as f32]
+        })
+        .collect();
+    let flags: Vec<u32> = (0..n)
+        .map(|idx| {
+            if zones.get(idx) != Some(&zone) {
+                CELL_SOLID
+            } else if let Some(&fi) = fan_of.get(idx).filter(|f| **f != u32::MAX) {
+                CELL_FAN | (fi << FAN_SHIFT)
+            } else {
+                CELL_AIR
             }
-        }
-    }
-    if air == 0 {
-        return Err(SimError::Invalid("no air in the domain: nothing to flow".into()));
-    }
+        })
+        .collect();
+    // Only the air meets the domain walls; a coolant is held in its body.
     let mut open_walls = 0u32;
-    for (i, w) in problem.walls.iter().enumerate() {
-        if *w == Wall::Open {
-            open_walls |= 1 << i;
+    if zone == ZONE_AIR {
+        for (i, w) in problem.walls.iter().enumerate() {
+            if *w == Wall::Open {
+                open_walls |= 1 << i;
+            }
         }
     }
     let dtemp = if settings.buoyancy {
@@ -187,43 +246,84 @@ pub fn setup(grid: &Grid, voxels: &Voxels, problem: &Problem, settings: &FlowSet
         max_steps: settings.max_steps,
         tolerance: settings.tolerance,
     };
-    Ok((lattice, Units { u_scale, dt, effective_viscosity, p_scale }))
+    Ok(Some((lattice, Units { u_scale, dt, effective_viscosity, p_scale })))
 }
 
 pub(crate) fn solve(
     grid: &Grid,
-    voxels: &Voxels,
+    zones: &[u16],
     problem: &Problem,
     settings: &FlowSettings,
     temperature: Option<&[f64]>,
     backend: &dyn Accelerator,
     progress: Progress,
 ) -> Result<FlowReport> {
-    let (lattice, units) = setup(grid, voxels, problem, settings, temperature)?;
-    let air_cells = lattice.air_cells();
-    let started = web_time::Instant::now();
-    let fields = backend.flow(&lattice, progress)?;
-    let seconds = started.elapsed().as_secs_f64().max(1e-9);
-    let mlups = (air_cells as f64) * (fields.steps as f64) / seconds / 1e6;
     let n = grid.len();
-    if fields.u.len() != n || fields.rho.len() != n {
-        return Err(SimError::Internal(format!("{}: flow fields do not match the grid", backend.name())));
+    let mut velocity = vec![[0.0f32; 3]; n];
+    let mut pressure = vec![0.0f32; n];
+    let mut runs = Vec::new();
+    let zone_count = problem.fluids.len() + 1;
+    for zone in 0..zone_count {
+        let zone = zone as u16;
+        let Some((lattice, units)) = setup(grid, zones, problem, settings, temperature, zone)? else { continue };
+        let cells = lattice.air_cells();
+        let started = web_time::Instant::now();
+        let fields = backend.flow(&lattice, progress)?;
+        let seconds = started.elapsed().as_secs_f64().max(1e-9);
+        if fields.u.len() != n || fields.rho.len() != n {
+            return Err(SimError::Internal(format!("{}: flow fields do not match the grid", backend.name())));
+        }
+        let inv = (1.0 / units.u_scale) as f32;
+        let p_scale = units.p_scale as f32;
+        for idx in 0..n {
+            if zones.get(idx) != Some(&zone) {
+                continue;
+            }
+            if let (Some(v), Some(r), Some(ov), Some(op)) = (fields.u.get(idx), fields.rho.get(idx), velocity.get_mut(idx), pressure.get_mut(idx)) {
+                *ov = [v[0] * inv, v[1] * inv, v[2] * inv];
+                *op = (r - 1.0) * p_scale;
+            }
+        }
+        runs.push(ZoneFlow {
+            zone,
+            name: zone_name(zone),
+            cells,
+            steps: fields.steps,
+            converged: fields.converged,
+            change: fields.change,
+            dt: units.dt,
+            max_lattice_speed: fields.max_lattice_speed,
+            effective_viscosity: units.effective_viscosity,
+            mlups: (cells as f64) * (fields.steps as f64) / seconds / 1e6,
+        });
     }
-    let inv = (1.0 / units.u_scale) as f32;
-    let p_scale = units.p_scale as f32;
-    let velocity = fields.u.iter().map(|v| [v[0] * inv, v[1] * inv, v[2] * inv]).collect();
-    let pressure = fields.rho.iter().map(|r| (r - 1.0) * p_scale).collect();
+    if runs.is_empty() {
+        return Err(SimError::Invalid("no fluid in the domain: nothing to flow".into()));
+    }
+    let air = runs.iter().find(|z| z.zone == ZONE_AIR).cloned().unwrap_or_else(|| ZoneFlow {
+        zone: ZONE_SOLID,
+        name: "none".into(),
+        cells: 0,
+        steps: 0,
+        converged: true,
+        change: 0.0,
+        dt: 0.0,
+        max_lattice_speed: 0.0,
+        effective_viscosity: problem.air.kinematic_viscosity,
+        mlups: 0.0,
+    });
     Ok(FlowReport {
         velocity,
         pressure,
-        steps: fields.steps,
-        converged: fields.converged,
-        change: fields.change,
-        dt: units.dt,
-        max_lattice_speed: fields.max_lattice_speed,
-        air_cells,
-        effective_viscosity: units.effective_viscosity,
+        steps: air.steps,
+        converged: runs.iter().all(|z| z.converged),
+        change: air.change,
+        dt: air.dt,
+        max_lattice_speed: runs.iter().map(|z| z.max_lattice_speed).fold(0.0, f64::max),
+        air_cells: air.cells,
+        effective_viscosity: air.effective_viscosity,
         backend: backend.name(),
-        mlups,
+        mlups: air.mlups,
+        zones: runs,
     })
 }

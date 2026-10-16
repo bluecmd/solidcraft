@@ -404,6 +404,7 @@ pub(crate) fn problem(s: &Session, name: &str, study: &Study, flow_override: Opt
             conductivity,
             power_w: setup.power_w,
             fixed_temperature_c: setup.fixed_temperature_c,
+            fluid: None,
         });
         names.push(b.name.clone());
     }
@@ -431,6 +432,7 @@ pub(crate) fn problem(s: &Session, name: &str, study: &Study, flow_override: Opt
         bodies,
         walls: study.walls,
         air: study.air.clone(),
+        fluids: Vec::new(),
         thermal: study.thermal.clone(),
         fans: study.fans.clone(),
         flow,

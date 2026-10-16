@@ -4,10 +4,11 @@ use serde::{Deserialize, Serialize};
 use solidcraft_geom::Vec3;
 
 use crate::flow::FlowReport;
-use crate::grid::{FLUID, Grid};
+use crate::grid::Grid;
 use crate::problem::Problem;
 use crate::thermal::ThermalReport;
 use crate::voxel::Voxels;
+use crate::zones::{ZONE_AIR, zone_name};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BodyReport {
@@ -19,6 +20,18 @@ pub struct BodyReport {
     pub mean_c: f64,
 }
 
+/// One fluid zone's temperatures and speeds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FluidReport {
+    pub zone: u16,
+    pub name: String,
+    pub cells: usize,
+    pub min_c: f64,
+    pub max_c: f64,
+    pub mean_c: f64,
+    pub max_speed_m_s: f64,
+}
+
 /// The numbers a person (or an agent) reads first.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Summary {
@@ -27,6 +40,8 @@ pub struct Summary {
     pub air_cells: usize,
     pub ambient_c: f64,
     pub bodies: Vec<BodyReport>,
+    /// The air (first) and every coolant zone that had cells.
+    pub fluids: Vec<FluidReport>,
     pub air_max_c: f64,
     pub air_mean_c: f64,
     pub heat_in_w: f64,
@@ -57,13 +72,15 @@ pub struct FlowSummary {
 pub struct Results {
     pub grid: Grid,
     pub voxels: Voxels,
+    /// The fluid zone per cell (`zones::ZONE_SOLID` in bodies that are not fluid).
+    pub zones: Vec<u16>,
     pub thermal: ThermalReport,
     pub flow: Option<FlowReport>,
     pub summary: Summary,
 }
 
 impl Results {
-    pub(crate) fn new(grid: Grid, voxels: Voxels, problem: &Problem, thermal: ThermalReport, flow: Option<FlowReport>) -> Results {
+    pub(crate) fn new(grid: Grid, voxels: Voxels, zones: Vec<u16>, problem: &Problem, thermal: ThermalReport, flow: Option<FlowReport>) -> Results {
         let mut bodies = Vec::new();
         for (b, body) in problem.bodies.iter().enumerate() {
             let (mut min, mut max, mut sum, mut count) = (f64::INFINITY, f64::NEG_INFINITY, 0.0, 0usize);
@@ -87,20 +104,42 @@ impl Results {
                 mean_c: mean,
             });
         }
-        let (mut air_max, mut air_sum, mut air_count) = (f64::NEG_INFINITY, 0.0, 0usize);
-        for (idx, l) in voxels.label.iter().enumerate() {
-            if *l == FLUID
-                && let Some(&t) = thermal.temperature.get(idx)
-            {
-                air_max = air_max.max(t);
-                air_sum += t;
-                air_count += 1;
+        let mut fluids = Vec::new();
+        for z in 0..problem.fluids.len() + 1 {
+            let z = z as u16;
+            let (mut min, mut max, mut sum, mut count, mut speed) = (f64::INFINITY, f64::NEG_INFINITY, 0.0, 0usize, 0.0f64);
+            for (idx, zone) in zones.iter().enumerate() {
+                if *zone != z {
+                    continue;
+                }
+                if let Some(&t) = thermal.temperature.get(idx) {
+                    min = min.min(t);
+                    max = max.max(t);
+                    sum += t;
+                    count += 1;
+                }
+                if let Some(v) = flow.as_ref().and_then(|f| f.velocity.get(idx)) {
+                    speed = speed.max(f64::from(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt());
+                }
+            }
+            if count > 0 {
+                fluids.push(FluidReport {
+                    zone: z,
+                    name: zone_name(z),
+                    cells: count,
+                    min_c: min,
+                    max_c: max,
+                    mean_c: sum / count as f64,
+                    max_speed_m_s: speed,
+                });
             }
         }
+        let air = fluids.iter().find(|f| f.zone == ZONE_AIR);
+        let (air_max, air_sum, air_count) = air.map_or((f64::NEG_INFINITY, 0.0, 0usize), |a| (a.max_c, a.mean_c * a.cells as f64, a.cells));
         let flow_summary = flow.as_ref().map(|f| {
             let (mut max, mut sum, mut n) = (0.0f64, 0.0f64, 0usize);
             for (idx, v) in f.velocity.iter().enumerate() {
-                if voxels.label.get(idx) == Some(&FLUID) {
+                if zones.get(idx).is_some_and(|z| *z != crate::zones::ZONE_SOLID) {
                     let s = f64::from(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
                     max = max.max(s);
                     sum += s;
@@ -126,6 +165,7 @@ impl Results {
             air_cells: air_count,
             ambient_c: problem.thermal.ambient_c,
             bodies,
+            fluids,
             air_max_c: if air_count > 0 { air_max } else { f64::NAN },
             air_mean_c: if air_count > 0 { air_sum / air_count as f64 } else { f64::NAN },
             heat_in_w: thermal.heat_in,
@@ -136,7 +176,13 @@ impl Results {
             thermal_method: thermal.method.clone(),
             flow: flow_summary,
         };
-        Results { grid, voxels, thermal, flow, summary }
+        Results { grid, voxels, zones, thermal, flow, summary }
+    }
+
+    /// The fluid zone of the cell containing a world point (`zones::ZONE_SOLID` in a solid body).
+    pub fn zone_at(&self, p: Vec3) -> Option<u16> {
+        let c = self.grid.cell_of(p)?;
+        self.zones.get(self.grid.index(c)).copied()
     }
 
     /// Temperature (°C) of the cell containing a world point.

@@ -19,6 +19,10 @@ pub struct SolidBody {
     pub power_w: f64,
     /// Held at this temperature (°C): a heat sink, a cold plate, a boundary the study does not model.
     pub fixed_temperature_c: Option<f64>,
+    /// The body is a volume of fluid (index into [`Problem::fluids`]): water in tubes and
+    /// blocks, modelled as the coolant's own shape. It flows (driven by fans/pumps whose region
+    /// covers it), carries heat, and bounces off every other cell.
+    pub fluid: Option<usize>,
 }
 
 impl SolidBody {
@@ -42,29 +46,74 @@ pub enum Wall {
     Closed,
 }
 
-/// Air (or another fluid) filling everything that is not a body.
+/// A fluid: the air filling everything that is not a body, or a coolant in tagged bodies.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Air {
-    /// W/(m K); 0.026 for air at room temperature.
+pub struct Fluid {
+    /// W/(m K); 0.026 for air at room temperature, 0.6 for water.
     pub conductivity: f64,
     /// kg/m³.
     pub density: f64,
     /// J/(kg K).
     pub specific_heat: f64,
-    /// m²/s; 1.5e-5 for air.
+    /// m²/s; 1.5e-5 for air, 1e-6 for water.
     pub kinematic_viscosity: f64,
-    /// Multiplies the conductivity of air cells to stand in for the mixing that natural convection
-    /// provides on a grid too coarse to resolve it: 1 is still air, 5–10 a sealed enclosure, 100 or
-    /// more a part in free air. Ignored (set to 1) where airflow is solved.
+    /// Multiplies the conductivity of still cells to stand in for the mixing that natural
+    /// convection provides on a grid too coarse to resolve it: 1 is still fluid, 5–10 a sealed
+    /// enclosure, 100 or more a part in free air. Ignored (set to 1) where the flow is solved.
     pub mixing_factor: f64,
-    /// 1/K; 3.4e-3 for air. Buoyancy for natural convection when airflow is solved.
+    /// 1/K; 3.4e-3 for air, 2e-4 for water. Buoyancy when the flow is solved.
     pub thermal_expansion: f64,
+    /// W/(m² K) between a solid surface and this fluid's cell next to it, standing in for the
+    /// boundary layer; `None` uses the study's [`Thermal::film_coefficient`] (meant for air).
+    /// Water against a wall runs in the thousands.
+    pub film_coefficient: Option<f64>,
 }
 
-impl Default for Air {
+/// The air the study is bathed in.
+pub type Air = Fluid;
+
+impl Default for Fluid {
     fn default() -> Self {
-        Air { conductivity: 0.026, density: 1.2, specific_heat: 1005.0, kinematic_viscosity: 1.5e-5, mixing_factor: 10.0, thermal_expansion: 3.4e-3 }
+        Fluid::air()
+    }
+}
+
+impl Fluid {
+    pub fn air() -> Fluid {
+        Fluid {
+            conductivity: 0.026,
+            density: 1.2,
+            specific_heat: 1005.0,
+            kinematic_viscosity: 1.5e-5,
+            mixing_factor: 10.0,
+            thermal_expansion: 3.4e-3,
+            film_coefficient: None,
+        }
+    }
+    /// Water at room temperature.
+    pub fn water() -> Fluid {
+        Fluid {
+            conductivity: 0.6,
+            density: 998.0,
+            specific_heat: 4180.0,
+            kinematic_viscosity: 1.0e-6,
+            mixing_factor: 1.0,
+            thermal_expansion: 2.1e-4,
+            film_coefficient: Some(3000.0),
+        }
+    }
+    pub fn validate(&self, what: &str) -> Result<()> {
+        finite(self.conductivity, 0.0, 1e6, &format!("{what} conductivity"))?;
+        finite(self.density, 1e-6, 1e6, &format!("{what} density"))?;
+        finite(self.specific_heat, 1e-6, 1e9, &format!("{what} specific heat"))?;
+        finite(self.kinematic_viscosity, 1e-12, 1.0, &format!("{what} kinematic viscosity"))?;
+        finite(self.mixing_factor, 0.0, 1e9, &format!("{what} mixing factor"))?;
+        finite(self.thermal_expansion, 0.0, 1.0, &format!("{what} thermal expansion"))?;
+        if let Some(h) = self.film_coefficient {
+            finite(h, 0.0, 1e7, &format!("{what} film coefficient"))?;
+        }
+        Ok(())
     }
 }
 
@@ -119,7 +168,9 @@ pub struct Problem {
     pub cell_size: f64,
     pub bodies: Vec<SolidBody>,
     pub walls: [Wall; 6],
-    pub air: Air,
+    pub air: Fluid,
+    /// Other fluids, in the bodies that name them ([`SolidBody::fluid`]): zone `k + 1`.
+    pub fluids: Vec<Fluid>,
     pub thermal: Thermal,
     pub fans: Vec<Fan>,
     /// Solve airflow (forced by fans, buoyant from heat) and let it carry heat; `None` keeps air still.
@@ -152,13 +203,19 @@ impl Problem {
             if b.triangles.len() > 50_000_000 {
                 return Err(SimError::TooLarge(format!("{what} has too many triangles")));
             }
+            if let Some(f) = b.fluid
+                && f >= self.fluids.len()
+            {
+                return Err(SimError::Invalid(format!("{what} names fluid {f}, but the study has {}", self.fluids.len())));
+            }
         }
-        finite(self.air.conductivity, 0.0, 1e6, "air conductivity")?;
-        finite(self.air.density, 1e-6, 1e6, "air density")?;
-        finite(self.air.specific_heat, 1e-6, 1e9, "air specific heat")?;
-        finite(self.air.kinematic_viscosity, 1e-12, 1.0, "air kinematic viscosity")?;
-        finite(self.air.mixing_factor, 0.0, 1e9, "air mixing factor")?;
-        finite(self.air.thermal_expansion, 0.0, 1.0, "air thermal expansion")?;
+        self.air.validate("air")?;
+        if self.fluids.len() > 64 {
+            return Err(SimError::TooLarge("more than 64 fluids".into()));
+        }
+        for (k, f) in self.fluids.iter().enumerate() {
+            f.validate(&format!("fluid {k}"))?;
+        }
         finite(self.thermal.ambient_c, -273.15, 1e5, "ambient temperature")?;
         finite(self.thermal.film_coefficient, 0.0, 1e6, "film coefficient")?;
         if self.fans.len() > 1000 {
