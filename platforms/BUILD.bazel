@@ -11,6 +11,35 @@ constraint_value(
     constraint_setting = ":gpu",
 )
 
+constraint_value(
+    name = "rtx4090",
+    constraint_setting = ":gpu",
+)
+
+platform(
+    name = "windows_x86_64",
+    constraint_values = [
+        "@platforms//os:windows",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+# A Windows workstation with an RTX 4090 running the BuildBuddy executor of pool `rtx4090`
+# (tools/sim-bench/README.md); bare isolation, actions run as that user.
+platform(
+    name = "rtx4090_executor",
+    constraint_values = [
+        "@platforms//os:windows",
+        "@platforms//cpu:x86_64",
+        ":rtx4090",
+    ],
+    exec_properties = {
+        "OSFamily": "Windows",
+        "Pool": "rtx4090",
+        "workload-isolation-type": "none",
+    },
+)
+
 platform(
     name = "linux_aarch64",
     constraint_values = [

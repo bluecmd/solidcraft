@@ -1,5 +1,9 @@
-# Outputs per platform (host and aarch64 trees side by side).
+# Outputs per platform (host, aarch64 and Windows trees side by side).
 build --experimental_platform_in_output_dir
+# Windows targets: crates with raw-dylib imports (getrandom, windows-link) need dlltool while
+# their rlib compiles. rules_rust names it by an execroot-relative path, but rustc runs it from
+# the archive's directory, so the path must be absolute; the process wrapper expands ${pwd}.
+build --@rules_rust//:extra_rustc_flags=-Cdlltool=${pwd}/external/+http_archive+llvm_mingw/bin/dlltool
 # Optimised, like Cargo's release profile: the benchmark's host-side phases (voxelising, the
 # matrix and multigrid setup) are many times slower unoptimised, which skews its timings.
 build --compilation_mode=opt
@@ -16,7 +20,7 @@ build --remote_upload_local_results
 # The GB10 executor (pool gb10 on a DGX Spark) is an execution platform behind the host, so only
 # targets that require //platforms:gb10 (the GPU benchmark test) resolve to it; everything else
 # builds here. `bazel test --config=remote //tools/sim-bench:gb10` runs the benchmark there.
-build --extra_execution_platforms=@platforms//host,//platforms:gb10_executor
+build --extra_execution_platforms=@platforms//host,//platforms:gb10_executor,//platforms:rtx4090_executor
 build:remote --remote_executor=grpc://100.99.0.75:1985
 # Only tests execute remotely; compiles and build scripts stay here (the toolchain's helpers are
 # built for this host's glibc, which the x86 pool's containers predate).

@@ -1,0 +1,29 @@
+--- a/build.rs
++++ b/build.rs
+@@ -25,10 +25,10 @@
+     let dest = env::var("OUT_DIR").unwrap();
+     let mut file = File::create(&Path::new(&dest).join("webgl_exts.rs")).unwrap();
+ 
+-    // Find the absolute path to the folder containing the WebGL extensions.
+-    // The absolute path is needed, because we don't know where the output
+-    // directory will be, and `include_bytes!(..)` resolves paths relative to the
+-    // containing file.
++    // The folder containing the WebGL extensions. Each extension's XML is copied beside the
++    // generated file, so that `include_bytes!(..)` (which resolves paths relative to the
++    // containing file) names it by a relative path: an absolute path into the build script's
++    // working directory does not exist when the crate is compiled under Bazel.
+     let root = env::current_dir().unwrap().join("api_webgl/extensions");
+ 
+     // Generate a slice literal, looking like this:
+@@ -50,8 +50,9 @@
+             // really is an extension.
+             let ext_path = path.join("extension.xml");
+             if ext_path.is_file() {
+-                // Include the XML file, making sure to use an absolute path.
+-                writeln!(file, "&*include_bytes!({:?}),", ext_path.to_str().unwrap()).unwrap();
++                let copy = format!("{}.xml", ext_name);
++                std::fs::copy(&ext_path, Path::new(&dest).join(&copy)).unwrap();
++                writeln!(file, "&*include_bytes!({:?}),", copy).unwrap();
+             }
+         }
+     }

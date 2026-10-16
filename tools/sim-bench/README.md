@@ -56,3 +56,13 @@ the process RSS reached ~2.8 GB — the GPU side escapes the cgroup, so the pod'
 not bound a GPU-heavy action and node headroom is the real limit (spark-2 bottomed at ~1.3 GB
 free beside GLM). Keep 1.5 mm as the largest case there; 1 mm (27 M cells, ~14 GB) needs a node
 with 20 GB free.
+
+### On a Windows workstation (RTX 4090, pool `rtx4090`)
+
+The same through a BuildBuddy executor started by hand on a Windows machine: the package
+(`/scratch/bluecmd/bb-win/buildbuddy-executor-rtx4090.zip` on the bastion — the fork's Windows
+executor, `config.yaml` with pool `rtx4090` and the bare runner, `start.cmd`, a README) registers
+the machine while its window is open. `bazel test --config=remote //tools/sim-bench:rtx4090`
+(or `:rtx4090-1_5`) cross-compiles the CLI for `x86_64-pc-windows-gnu` with the llvm-mingw
+toolchain (`tools/bazel/llvm_mingw/`) and runs it there as a `native_test` (no shell needed on
+that machine); the JSON is in `test.log`.

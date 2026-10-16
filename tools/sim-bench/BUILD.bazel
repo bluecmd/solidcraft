@@ -2,6 +2,7 @@
 # on the gb10 executor. `bazel test --config=remote //tools/sim-bench:gb10`; the JSON lands in the
 # test's undeclared outputs (outputs.zip in BuildBuddy).
 
+load("@bazel_skylib//rules:native_binary.bzl", "native_test")
 load("@rules_platform//platform_data:defs.bzl", "platform_data")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
@@ -10,6 +11,39 @@ platform_data(
     platform = "//platforms:linux_aarch64",
     target = "//apps/solidcraft-cli:solidcraft-cli",
 )
+
+# The same on a Windows workstation with an RTX 4090 (BuildBuddy pool `rtx4090`, a bare
+# executor started by hand there: see README.md). The CLI itself is the test, so no shell is
+# needed on that machine; the JSON goes to stdout (test.log) as there is no --json-out.
+platform_data(
+    name = "solidcraft-cli-windows",
+    platform = "//platforms:windows_x86_64",
+    target = "//apps/solidcraft-cli:solidcraft-cli",
+)
+
+[
+    native_test(
+        name = "rtx4090" + ("" if cell == "2" else "-" + cell.replace(".", "_")),
+        size = "large",
+        timeout = "long",
+        src = ":solidcraft-cli-windows",
+        out = "solidcraft-cli-rtx4090-" + cell.replace(".", "_") + ".exe",
+        args = [
+            "sim-bench",
+            "--cell",
+            cell,
+            "--steps",
+            "3000",
+        ],
+        exec_properties = {
+            "test.OSFamily": "Windows",
+            "test.Pool": "rtx4090",
+            "test.workload-isolation-type": "none",
+        },
+        tags = ["gpu"],
+    )
+    for cell in ["2", "1.5"]
+]
 
 [
     sh_test(
