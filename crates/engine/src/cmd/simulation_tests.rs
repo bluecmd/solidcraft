@@ -176,3 +176,29 @@ fn a_fan_cools_the_block() {
     let r = s.execute("sim.solve", &json!({"study": "T", "flow": false})).unwrap();
     assert!(r["flow"].is_null());
 }
+
+#[test]
+fn a_water_body_becomes_a_coolant_zone() {
+    let mut s = session_with_block();
+    // a water bar touching the block's top, with a pump
+    s.execute("solid.box", &json!({"length": 60, "width": 6, "height": 6, "corner": [-20, 7, 10], "body_name": "Water"})).unwrap();
+    s.execute("sim.study.set", &json!({"name": "T", "set": {"cell_size_mm": 2.0, "padding_mm": 8.0}})).unwrap();
+    s.execute("sim.body.set", &json!({"study": "T", "body": "Body1", "power_w": 1.0})).unwrap();
+    let e = s.execute("sim.body.set", &json!({"study": "T", "body": "Water", "fluid": "oil"})).unwrap_err();
+    assert!(e.to_string().contains("not defined"), "{e}");
+    let r = s.execute("sim.body.set", &json!({"study": "T", "body": "Water", "fluid": "water"})).unwrap();
+    assert_eq!(r["setup"]["fluid"], "water");
+    let r = s.execute("sim.solve", &json!({"study": "T"})).unwrap();
+    assert_eq!(r["fluids"].as_array().unwrap().len(), 2, "{}", r["fluids"]);
+    assert_eq!(r["fluids"][1]["name"], "fluid1");
+    assert!(r["fluids"][1]["cells"].as_u64().unwrap() > 50);
+    // a custom coolant, then clearing the tag
+    let r = s.execute("sim.fluid.set", &json!({"study": "T", "name": "glycol", "set": {"kinematic_viscosity": 4e-6}})).unwrap();
+    assert_eq!(r["fluid"]["kinematic_viscosity"], 4e-6);
+    s.execute("sim.body.set", &json!({"study": "T", "body": "Water", "fluid": "glycol"})).unwrap();
+    s.execute("sim.fluid.delete", &json!({"study": "T", "name": "glycol"})).unwrap();
+    assert!(s.doc.simulation.studies["T"].bodies["Water"].fluid.is_none(), "deleting a fluid untags its bodies");
+    s.execute("sim.body.set", &json!({"study": "T", "body": "Water", "fluid": null})).unwrap();
+    let r = s.execute("sim.solve", &json!({"study": "T"})).unwrap();
+    assert_eq!(r["fluids"].as_array().unwrap().len(), 1);
+}

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use solidcraft_geom::Aabb3;
-pub use solidcraft_sim::{Air, Fan, FlowSettings, Limits, Thermal, Wall};
+pub use solidcraft_sim::{Air, Fan, FlowSettings, Fluid, Limits, Thermal, Wall};
 
 use crate::{DocError, Result};
 
@@ -27,6 +27,9 @@ pub struct BodySetup {
     pub fixed_temperature_c: Option<f64>,
     /// Leave the body out of the study (it becomes air).
     pub exclude: bool,
+    /// The body is a volume of this fluid (a name in [`Study::fluids`], or the built-in
+    /// `water`): coolant in tubes and blocks, modelled as the coolant's own shape.
+    pub fluid: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -42,6 +45,9 @@ pub struct Study {
     /// `-x, +x, -y, +y, -z, +z`.
     pub walls: [Wall; 6],
     pub air: Air,
+    /// Coolants by name (`water` is built in and may be omitted); bodies name them in
+    /// [`BodySetup::fluid`].
+    pub fluids: BTreeMap<String, Fluid>,
     pub thermal: Thermal,
     pub fans: Vec<Fan>,
     /// Solve airflow too; `None` keeps the air still (conduction with a mixing factor).
@@ -58,6 +64,7 @@ impl Default for Study {
             bodies: BTreeMap::new(),
             walls: [Wall::Open; 6],
             air: Air::default(),
+            fluids: BTreeMap::new(),
             thermal: Thermal::default(),
             fans: Vec::new(),
             flow: None,
@@ -65,6 +72,10 @@ impl Default for Study {
         }
     }
 }
+
+/// The name of the built-in coolant.
+pub const WATER: &str = "water";
+pub const MAX_STUDY_FLUIDS: usize = 16;
 
 fn number(value: f64, low: f64, high: f64, what: &str) -> Result<()> {
     if !value.is_finite() || value < low || value > high {
@@ -74,6 +85,16 @@ fn number(value: f64, low: f64, high: f64, what: &str) -> Result<()> {
 }
 
 impl Study {
+    /// The coolants the study's bodies can name, in a fixed order: the defined ones by name, then
+    /// the built-in `water` when some body uses it without defining it.
+    pub fn fluid_list(&self) -> Vec<(String, Fluid)> {
+        let mut list: Vec<(String, Fluid)> = self.fluids.iter().map(|(n, f)| (n.clone(), f.clone())).collect();
+        if !self.fluids.contains_key(WATER) && self.bodies.values().any(|b| b.fluid.as_deref() == Some(WATER)) {
+            list.push((WATER.to_string(), Fluid::water()));
+        }
+        list
+    }
+
     pub fn validate(&self) -> Result<()> {
         number(self.cell_size_mm, 0.0, 1e4, "cell_size_mm")?;
         number(self.padding_mm, 0.0, 1e6, "padding_mm")?;
@@ -96,6 +117,21 @@ impl Study {
             if let Some(t) = b.fixed_temperature_c {
                 number(t, -273.15, 1e5, &format!("{name}: fixed_temperature_c"))?;
             }
+            if let Some(f) = &b.fluid
+                && f != WATER
+                && !self.fluids.contains_key(f)
+            {
+                return Err(DocError::Invalid(format!("{name}: fluid '{f}' is not defined in the study (fluids) and is not `{WATER}`")));
+            }
+        }
+        if self.fluids.len() > MAX_STUDY_FLUIDS {
+            return Err(DocError::Invalid(format!("at most {MAX_STUDY_FLUIDS} fluids")));
+        }
+        for (name, f) in &self.fluids {
+            if name.is_empty() || name.len() > 64 || name.chars().any(char::is_control) {
+                return Err(DocError::Invalid("fluid name: expected nonempty text of at most 64 bytes".into()));
+            }
+            f.validate(&format!("fluid '{name}'")).map_err(|e| DocError::Invalid(e.to_string()))?;
         }
         if self.fans.len() > MAX_STUDY_FANS {
             return Err(DocError::Invalid(format!("at most {MAX_STUDY_FANS} fans")));
@@ -182,6 +218,20 @@ mod tests {
         let json = serde_json::to_value(&s).unwrap();
         let back: SimulationSettings = serde_json::from_value(json).unwrap();
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn fluids_are_named_and_water_is_built_in() {
+        let mut s = Study::default();
+        s.bodies.insert("Tube".into(), BodySetup { fluid: Some("water".into()), ..Default::default() });
+        s.validate().unwrap();
+        assert_eq!(s.fluid_list().len(), 1);
+        assert_eq!(s.fluid_list()[0].0, "water");
+        s.bodies.insert("Oil".into(), BodySetup { fluid: Some("oil".into()), ..Default::default() });
+        assert!(s.validate().is_err(), "an undefined fluid");
+        s.fluids.insert("oil".into(), Fluid { kinematic_viscosity: 5e-5, ..Fluid::water() });
+        s.validate().unwrap();
+        assert_eq!(s.fluid_list().iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["oil", "water"]);
     }
 
     #[test]

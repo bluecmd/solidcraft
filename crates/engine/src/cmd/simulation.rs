@@ -21,10 +21,13 @@ pub static COMMANDS: &[CommandSpec] = &[
         .params("name?: study. Without name returns {studies, defaults}; with name returns {name, study}."),
     CommandSpec::new("sim.study.delete", "Delete Simulation Study", study_delete).doc_only().params("name: study to remove."),
     CommandSpec::new("sim.body.set", "Heat Source", body_set).doc_only().at("SIMULATION", "SETUP").icon("box")
-        .params("study: study name (created from defaults if missing), body: body name (an instance's definition name applies to every instance), power_w?: W generated in the body, conductivity?: W/(m K) overriding the material (null to clear), fixed_temperature_c?: hold the body at this °C (null to clear), exclude?: leave the body out. Merges into the body's settings; one undo step."),
+        .params("study: study name (created from defaults if missing), body: body name (an instance's definition name applies to every instance), power_w?: W generated in the body, conductivity?: W/(m K) overriding the material (null to clear), fixed_temperature_c?: hold the body at this °C (null to clear), exclude?: leave the body out, fluid?: the body is a volume of this coolant (`water`, or a name from sim.fluid.set; null to clear). Merges into the body's settings; one undo step."),
     CommandSpec::new("sim.fan.set", "Fan", fan_set).doc_only().at("SIMULATION", "SETUP").icon("box")
         .params("study: study name (created if missing), name: fan name, region: {min:[x,y,z], max:[x,y,z]} world mm box of air the fan drives, velocity: [x,y,z] m/s. Replaces a fan of that name; one undo step. Airflow is solved when the study has `flow` settings."),
     CommandSpec::new("sim.fan.delete", "Delete Fan", fan_delete).doc_only().params("study: study name, name: fan to remove."),
+    CommandSpec::new("sim.fluid.set", "Coolant", fluid_set).doc_only().at("SIMULATION", "SETUP").icon("box")
+        .params("study: study name (created if missing), name: fluid name (`water` is built in), set?: object of fields to replace (conductivity, density, specific_heat, kinematic_viscosity, mixing_factor, thermal_expansion, film_coefficient); starts from water's values. Bodies become volumes of it with sim.body.set {fluid}; a fan inside is its pump. One undo step."),
+    CommandSpec::new("sim.fluid.delete", "Delete Coolant", fluid_delete).doc_only().params("study: study name, name: fluid to remove (bodies naming it are untagged)."),
     CommandSpec::new("sim.solve", "Solve Simulation", solve).noundo().at("SIMULATION", "SOLVE").icon("box")
         .params("study: study name, flow?: true to solve airflow with default flow settings, false to keep the air still (overrides the study for this solve). Voxelises the visible bodies, solves airflow (if asked) and the temperature field; keeps the results for sim.results, sim.probe, sim.export and sim.display. Returns the summary: per-body min/max/mean °C, air temperatures, heat balance, convergence. Does not change the design. See docs/simulation.md"),
     CommandSpec::new("sim.results", "Simulation Results", results).noundo().doc_only().at("SIMULATION", "RESULTS").icon("box")
@@ -125,6 +128,9 @@ struct BodySet {
     fixed_temperature_c: Option<Value>,
     #[serde(default)]
     exclude: Option<bool>,
+    /// Absent: keep; `null`: clear; name: set.
+    #[serde(default, deserialize_with = "present")]
+    fluid: Option<Value>,
 }
 
 /// Keeps an explicit `null` apart from an absent field.
@@ -166,6 +172,12 @@ fn body_set(s: &mut Session, params: &Value) -> Result<Value> {
     if let Some(e) = request.exclude {
         setup.exclude = e;
     }
+    match &request.fluid {
+        None => {}
+        Some(Value::Null) => setup.fluid = None,
+        Some(Value::String(name)) if !name.is_empty() && name.len() <= 64 => setup.fluid = Some(name.clone()),
+        Some(_) => return Err(bad(cmd, "`fluid` must be a fluid name or null")),
+    }
     let reply = json!({"study": request.study, "body": request.body, "setup": setup});
     store(s, cmd, settings)?;
     Ok(reply)
@@ -194,6 +206,63 @@ fn fan_set(s: &mut Session, params: &Value) -> Result<Value> {
     }
     store(s, cmd, settings)?;
     Ok(json!({"study": request.study, "fan": fan}))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FluidSet {
+    study: String,
+    name: String,
+    #[serde(default)]
+    set: Option<Value>,
+}
+
+fn fluid_set(s: &mut Session, params: &Value) -> Result<Value> {
+    let cmd = "sim.fluid.set";
+    let request: FluidSet = serde_json::from_value(params.clone()).map_err(|e| bad(cmd, e.to_string()))?;
+    SimulationSettings::validate_name(&request.study).map_err(|e| bad(cmd, e.to_string()))?;
+    if request.name.is_empty() || request.name.len() > 64 || request.name.chars().any(char::is_control) {
+        return Err(bad(cmd, "`name` must be a fluid name of at most 64 bytes"));
+    }
+    let mut settings = settings_mut(s);
+    let study = settings.studies.entry(request.study.clone()).or_default();
+    let current = study.fluids.get(&request.name).cloned().unwrap_or_else(solidcraft_sim::Fluid::water);
+    let mut value = serde_json::to_value(&current).map_err(|e| bad(cmd, e.to_string()))?;
+    if let Some(set) = &request.set {
+        let patch = set.as_object().filter(|p| p.len() <= 8).ok_or_else(|| bad(cmd, "`set` must be an object with at most 8 fields"))?;
+        let object = value.as_object_mut().ok_or_else(|| bad(cmd, "invalid fluid"))?;
+        for (key, value) in patch {
+            object.insert(key.clone(), value.clone());
+        }
+    }
+    let fluid: solidcraft_sim::Fluid = serde_json::from_value(value).map_err(|e| bad(cmd, e.to_string()))?;
+    study.fluids.insert(request.name.clone(), fluid.clone());
+    store(s, cmd, settings)?;
+    Ok(json!({"study": request.study, "name": request.name, "fluid": fluid}))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FluidDelete {
+    study: String,
+    name: String,
+}
+
+fn fluid_delete(s: &mut Session, params: &Value) -> Result<Value> {
+    let cmd = "sim.fluid.delete";
+    let request: FluidDelete = serde_json::from_value(params.clone()).map_err(|e| bad(cmd, e.to_string()))?;
+    let mut settings = settings_mut(s);
+    let study = settings.studies.get_mut(&request.study).ok_or_else(|| bad(cmd, "no simulation study with that name"))?;
+    if study.fluids.remove(&request.name).is_none() {
+        return Err(bad(cmd, "no fluid with that name"));
+    }
+    for b in study.bodies.values_mut() {
+        if b.fluid.as_deref() == Some(request.name.as_str()) {
+            b.fluid = None;
+        }
+    }
+    store(s, cmd, settings)?;
+    Ok(json!({"study": request.study, "name": request.name, "deleted": true}))
 }
 
 #[derive(Deserialize)]
@@ -376,6 +445,7 @@ pub(crate) fn problem(s: &Session, name: &str, study: &Study, flow_override: Opt
     let mut names = Vec::new();
     let mut used: Vec<&str> = Vec::new();
     let mut bounds = Aabb3::EMPTY;
+    let fluid_list = study.fluid_list();
     for b in &st.bodies {
         if !s.body_visible(&b.name) {
             continue;
@@ -395,7 +465,14 @@ pub(crate) fn problem(s: &Session, name: &str, study: &Study, flow_override: Opt
         if mesh.triangles.is_empty() {
             continue;
         }
-        let conductivity = setup.conductivity.unwrap_or_else(|| s.doc.thermal_conductivity(def));
+        let fluid = match &setup.fluid {
+            Some(f) => Some(fluid_list.iter().position(|(n, _)| n == f).ok_or_else(|| bad(cmd, format!("body '{}': unknown fluid '{f}'", b.name)))?),
+            None => None,
+        };
+        let conductivity = match fluid.and_then(|i| fluid_list.get(i)) {
+            Some((_, f)) => f.conductivity,
+            None => setup.conductivity.unwrap_or_else(|| s.doc.thermal_conductivity(def)),
+        };
         bounds = bounds.union(&mesh.bounds());
         bodies.push(SolidBody {
             name: b.name.clone(),
@@ -404,7 +481,7 @@ pub(crate) fn problem(s: &Session, name: &str, study: &Study, flow_override: Opt
             conductivity,
             power_w: setup.power_w,
             fixed_temperature_c: setup.fixed_temperature_c,
-            fluid: None,
+            fluid,
         });
         names.push(b.name.clone());
     }
@@ -432,7 +509,7 @@ pub(crate) fn problem(s: &Session, name: &str, study: &Study, flow_override: Opt
         bodies,
         walls: study.walls,
         air: study.air.clone(),
-        fluids: Vec::new(),
+        fluids: fluid_list.into_iter().map(|(_, f)| f).collect(),
         thermal: study.thermal.clone(),
         fans: study.fans.clone(),
         flow,
