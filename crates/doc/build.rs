@@ -24,24 +24,27 @@ fn main() {
         let expected = HAND_WRITTEN + 1 + i as u32;
         assert_eq!(*version, expected, "src/format/: expected v{expected}/ next, found v{version}/ (versions are contiguous)");
     }
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let mut out = String::new();
     let mut mods = String::new();
     out.push_str("/// The changes of each format after the hand-written ones, oldest first.\nconst FOLDED: &[(u32, &[Part])] = &[\n");
     for (version, dir) in &folded {
         let _ = writeln!(out, "    ({version}, &[");
-        parts(dir, &format!("v{version}"), &mut out, &mut mods);
+        parts(dir, &format!("v{version}"), &out_dir, &mut out, &mut mods);
         out.push_str("    ]),\n");
     }
     out.push_str("];\n\n/// The changes no release has a number for yet (`src/format/pending/`).\nconst PENDING: &[Part] = &[\n");
-    parts(&root.join("pending"), "pending", &mut out, &mut mods);
+    parts(&root.join("pending"), "pending", &out_dir, &mut out, &mut mods);
     out.push_str("];\n");
     out.push_str(&mods);
-    let dest = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("format_parts.rs");
-    std::fs::write(dest, out).unwrap();
+    std::fs::write(out_dir.join("format_parts.rs"), out).unwrap();
 }
 
-/// The `Part`s of the change files in `dir`, in file-name order, and a module for each.
-fn parts(dir: &Path, prefix: &str, out: &mut String, mods: &mut String) {
+/// The `Part`s of the change files in `dir`, in file-name order, and a module for each. The
+/// module's file is a copy beside the generated list, so the `#[path]` is a bare file name: a
+/// path into the sources would be the build script's copy of them, which is not the compiling
+/// crate's under Bazel.
+fn parts(dir: &Path, prefix: &str, out_dir: &Path, out: &mut String, mods: &mut String) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut files: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x == "rs")).collect();
     files.sort();
@@ -57,6 +60,7 @@ fn parts(dir: &Path, prefix: &str, out: &mut String, mods: &mut String) {
         let module = format!("{prefix}_{}", name.replace('-', "_"));
         let step = if text.contains("fn step(") { format!("Some({module}::step)") } else { "None".into() };
         let _ = writeln!(out, "        Part {{ name: {name:?}, step: {step} }},");
-        let _ = writeln!(mods, "#[path = {:?}]\nmod {module};", path.display().to_string());
+        std::fs::write(out_dir.join(format!("{module}.rs")), &text).unwrap();
+        let _ = writeln!(mods, "#[path = \"{module}.rs\"]\nmod {module};");
     }
 }

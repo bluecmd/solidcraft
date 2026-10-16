@@ -7,3 +7,9 @@
 /.claude/worktrees/
 /target-snapshot
 __pycache__/
+
+# Bazel
+/bazel-*
+
+/user.bazelrc
+vendor/*/BUILD.bazel

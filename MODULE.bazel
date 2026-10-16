@@ -1,0 +1,43 @@
+"""Bazel build of SolidCraft, beside Cargo: the same Cargo.lock, resolved by crate_universe, with
+BUILD files generated from the manifests (tools/bazel/generate_build.py). Its purpose is remote
+execution: the CLI is cross-compiled here for aarch64 and the GPU benchmark runs as a test on a
+DGX Spark executor (//tools/sim-bench:gb10), results in BuildBuddy."""
+
+module(name = "solidcraft")
+
+bazel_dep(name = "rules_rust", version = "0.74.0")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "rules_platform", version = "0.1.0")
+bazel_dep(name = "rules_shell", version = "0.8.0")
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
+
+# One stable Rust for the host plus the aarch64 Linux target: rules_rust downloads rust-std for
+# both and registers a toolchain per (exec, target) pair.
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2024",
+    extra_target_triples = ["aarch64-unknown-linux-gnu"],
+    versions = ["1.98.1"],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+# Third-party crates straight from Cargo.lock. The workspace members are found from the root
+# manifest; the vendored patches of truck and egui-wgpu (path dependencies that are not members)
+# get BUILD files generated in place under vendor/.
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crates")
+
+# The aarch64 linker: zig's cc, hermetic, targeting glibc 2.28 (older than any node's), the same
+# trick cargo-zigbuild plays for the container image. The host keeps its own C toolchain.
+zig = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+use_repo(zig, "zig_sdk")
+
+register_toolchains("@zig_sdk//toolchain:linux_arm64_gnu.2.28")

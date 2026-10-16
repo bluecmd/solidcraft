@@ -1,0 +1,36 @@
+# The GPU benchmark as a Bazel test on a DGX Spark: the CLI cross-compiled for aarch64 here, run
+# on the gb10 executor. `bazel test --config=remote //tools/sim-bench:gb10`; the JSON lands in the
+# test's undeclared outputs (outputs.zip in BuildBuddy).
+
+load("@rules_platform//platform_data:defs.bzl", "platform_data")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+platform_data(
+    name = "solidcraft-cli-aarch64",
+    platform = "//platforms:linux_aarch64",
+    target = "//apps/solidcraft-cli:solidcraft-cli",
+)
+
+[
+    sh_test(
+        name = "gb10" + ("" if cell == "2" else "-" + cell.replace(".", "_")),
+        size = "large",
+        timeout = "long",
+        srcs = ["gb10_test.sh"],
+        args = [
+            "$(rootpath :solidcraft-cli-aarch64)",
+            "--cell",
+            cell,
+            "--steps",
+            "3000",
+        ],
+        data = [":solidcraft-cli-aarch64"],
+        env = {
+            "SOLIDCRAFT_GPU": "hardware",
+            "SOLIDCRAFT_SIM_DEBUG": "1",
+        },
+        exec_compatible_with = ["//platforms:gb10"],
+        tags = ["gpu"],
+    )
+    for cell in ["2", "1.5"]
+]

@@ -1,0 +1,35 @@
+# Platforms for the GPU benchmark on a DGX Spark: the binary is built for aarch64 Linux and the
+# test runs on an executor that has a GB10 (BuildBuddy pool `gb10`, bare isolation so the action
+# sees the pod's GPU and the Vulkan driver the NVIDIA runtime mounts).
+
+package(default_visibility = ["//visibility:public"])
+
+constraint_setting(name = "gpu")
+
+constraint_value(
+    name = "gb10",
+    constraint_setting = ":gpu",
+)
+
+platform(
+    name = "linux_aarch64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+platform(
+    name = "gb10_executor",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+        ":gb10",
+    ],
+    exec_properties = {
+        "OSFamily": "linux",
+        "Arch": "arm64",
+        "Pool": "gb10",
+        "workload-isolation-type": "none",
+    },
+)

@@ -1,0 +1,19 @@
+exports_files([
+    "Cargo.toml",
+    "Cargo.lock",
+])
+
+# Repository-level files the crates embed with include_str!/include_bytes! (licences, assets).
+filegroup(
+    name = "embedded",
+    srcs = [
+        "ATTRIBUTION.md",
+        "LICENSE-APACHE",
+        "LICENSE-MIT",
+        "NOTICE",
+        "THIRD-PARTY-LICENSES.txt",
+        "//assets:all",
+        "//examples:all",
+    ],
+    visibility = ["//visibility:public"],
+)
