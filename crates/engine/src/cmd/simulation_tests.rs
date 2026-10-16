@@ -202,3 +202,49 @@ fn a_water_body_becomes_a_coolant_zone() {
     let r = s.execute("sim.solve", &json!({"study": "T"})).unwrap();
     assert_eq!(r["fluids"].as_array().unwrap().len(), 1);
 }
+
+#[test]
+fn refinement_bounds_edges_and_keeps_the_surface() {
+    use super::refine;
+    let mut s = session_with_block();
+    let mesh = s.world_state().bodies[0].mesh();
+    let r = refine(&mesh, 2.0, 1_000_000);
+    let longest = r
+        .triangles
+        .iter()
+        .map(|t| {
+            let p = t.map(|k| r.positions[k as usize]);
+            p[0].dist(p[1]).max(p[1].dist(p[2])).max(p[2].dist(p[0]))
+        })
+        .fold(0.0, f64::max);
+    assert!(longest <= 2.0 + 1e-9, "longest edge {longest}");
+    let area = |m: &solidcraft_geom::Mesh| -> f64 {
+        m.triangles
+            .iter()
+            .map(|t| {
+                let p = t.map(|k| m.positions[k as usize]);
+                (p[1] - p[0]).cross(p[2] - p[0]).len() * 0.5
+            })
+            .sum()
+    };
+    assert!((area(&r) - area(&mesh)).abs() < 1e-6 * area(&mesh), "same surface");
+    assert_eq!(r.edges.len(), mesh.edges.len(), "B-rep edges kept for drawing");
+    assert_eq!(r.tri_face.len(), r.triangles.len());
+    // the cap holds
+    let capped = refine(&mesh, 0.01, 5_000);
+    assert!(capped.triangles.len() <= 5_000, "{}", capped.triangles.len());
+    // a big block heated: the colour map shows its hot surface, not just corner values
+    s.execute("sim.study.set", &json!({"name": "T", "set": {"cell_size_mm": 1.0, "padding_mm": 6.0}})).unwrap();
+    s.execute("sim.body.set", &json!({"study": "T", "body": "Body1", "power_w": 2.0, "conductivity": 0.2})).unwrap();
+    s.execute("sim.solve", &json!({"study": "T"})).unwrap();
+    let run = s.simulation.clone().unwrap();
+    let (lo, hi) = super::body_range(&run);
+    let (refined, colours) = super::heat_display(&run, 0, &mesh, lo, hi);
+    assert_eq!(colours.len(), refined.positions.len());
+    let h = run.heat_mesh(0, &mesh);
+    let hottest_surface = h.temperatures.iter().copied().filter(|t| t.is_finite()).fold(f64::NEG_INFINITY, f64::max);
+    let corner_max = mesh.positions.iter().filter_map(|p| run.results.surface_temperature(0, *p)).fold(f64::NEG_INFINITY, f64::max);
+    assert!(hottest_surface > corner_max + 1.0, "face centres run hotter than corners: {hottest_surface} vs {corner_max}");
+    // cached: the same Arc comes back
+    assert!(std::sync::Arc::ptr_eq(&h, &run.heat_mesh(0, &mesh)));
+}

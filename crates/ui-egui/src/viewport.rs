@@ -661,9 +661,14 @@ fn build_scene(app: &SolveApp) -> GpuScene {
         let face_looks: std::collections::HashMap<usize, solidcraft_engine::doc::appearance::Look> =
             if shaded { s.doc.face_colors(b).into_iter().collect() } else { Default::default() };
         let opaque = !faded && opacity >= 0.999 && face_looks.values().all(|l| l.opacity >= 0.999);
-        let mesh = drawn_mesh(app, b);
+        let mut mesh = drawn_mesh(app, b);
+        // A solved body is drawn refined to the grid, coloured by its surface temperature.
         let heat = sim.as_ref().and_then(|(r, lo, hi)| {
-            r.body_index(&b.name).map(|bi| std::sync::Arc::new(crate::simulation_workspace::vertex_colors(r, bi, &mesh, *lo, *hi)))
+            r.body_index(&b.name).map(|bi| {
+                let (refined, colors) = crate::simulation_workspace::heat_display(r, bi, &mesh, *lo, *hi);
+                mesh = refined;
+                std::sync::Arc::new(colors)
+            })
         });
         let planned = if heat.is_some() { None } else { drawn_plan(app, b, opaque) };
         let on_gpu = planned.is_some();

@@ -326,6 +326,9 @@ pub struct SimulationRun {
     pub results: solidcraft_sim::Results,
     /// World body name per body index in `results` (voxel labels).
     pub bodies: Vec<String>,
+    /// Display meshes refined to the grid and their surface temperatures, by body index and
+    /// source mesh (`cmd::simulation::heat_display`).
+    pub heat_cache: std::sync::Mutex<std::collections::HashMap<(u32, usize), (Arc<solidcraft_geom::Mesh>, Arc<cmd::simulation::HeatMesh>)>>,
 }
 
 impl SimulationRun {

@@ -305,7 +305,7 @@ impl Prepared {
         progress: solidcraft_sim::Progress,
     ) -> std::result::Result<SimulationRun, solidcraft_sim::SimError> {
         let results = solidcraft_sim::solve_with(&self.problem, backend, progress)?;
-        Ok(SimulationRun { study: self.study, revision: self.revision, results, bodies: self.bodies })
+        Ok(SimulationRun { study: self.study, revision: self.revision, results, bodies: self.bodies, heat_cache: Default::default() })
     }
 }
 
@@ -377,16 +377,111 @@ pub fn body_range(run: &SimulationRun) -> (f64, f64) {
     if hi - lo < 0.1 { (lo, lo + 0.1) } else { (lo, hi) }
 }
 
-/// Per-vertex colours of a body's mesh from the solved surface temperatures.
-pub fn vertex_colors(run: &SimulationRun, body: u32, mesh: &solidcraft_geom::Mesh, lo: f64, hi: f64) -> Vec<[u8; 3]> {
+/// A body's display mesh refined to about the simulation's cell size, with the solved surface
+/// temperature at every vertex (NaN where no cell of the body is near).
+#[derive(Debug)]
+pub struct HeatMesh {
+    pub mesh: Arc<solidcraft_geom::Mesh>,
+    pub temperatures: Vec<f64>,
+}
+
+/// Most triangles a refined body may have; the edge length grows past the cell size to stay under.
+const MAX_HEAT_TRIANGLES: usize = 400_000;
+
+/// `mesh` with every triangle split uniformly until its edges are at most `target` long (each
+/// triangle into k² by its longest edge), normals interpolated; B-rep edges and faces kept.
+pub fn refine(mesh: &solidcraft_geom::Mesh, target: f64, max_triangles: usize) -> solidcraft_geom::Mesh {
+    let tri = |t: &[u32; 3]| t.map(|k| mesh.positions.get(k as usize).copied().unwrap_or_default());
+    let splits = |t: &[u32; 3], len: f64| -> usize {
+        let [a, b, c] = tri(t);
+        let longest = a.dist(b).max(b.dist(c)).max(c.dist(a));
+        if !(longest.is_finite() && len > 0.0) { 1 } else { ((longest / len).ceil() as usize).clamp(1, 256) }
+    };
+    let mut len = target.max(1e-6);
+    for _ in 0..32 {
+        let total: usize = mesh.triangles.iter().map(|t| splits(t, len).pow(2)).sum();
+        if total <= max_triangles.max(mesh.triangles.len()) {
+            break;
+        }
+        len *= ((total as f64) / (max_triangles as f64)).sqrt().max(1.1);
+    }
+    let mut out = solidcraft_geom::Mesh {
+        edges: mesh.edges.clone(),
+        seams: mesh.seams.clone(),
+        smooth_edges: mesh.smooth_edges.clone(),
+        sharp_edges: mesh.sharp_edges.clone(),
+        edge_faces: mesh.edge_faces.clone(),
+        ..Default::default()
+    };
+    for (ti, t) in mesh.triangles.iter().enumerate() {
+        let k = splits(t, len);
+        let [pa, pb, pc] = tri(t);
+        let [na, nb, nc] = t.map(|i| mesh.normals.get(i as usize).copied().unwrap_or(Vec3::Z));
+        let face = mesh.tri_face.get(ti).copied().unwrap_or(0);
+        let base = out.positions.len() as u32;
+        // vertex (i, j) at barycentric ((k - i - j)/k, i/k, j/k), rows of decreasing length
+        let mut index = Vec::with_capacity((k + 1) * (k + 2) / 2);
+        for i in 0..=k {
+            for j in 0..=(k - i) {
+                let (u, v) = (i as f64 / k as f64, j as f64 / k as f64);
+                let w = 1.0 - u - v;
+                index.push(out.positions.len() as u32 - base);
+                out.positions.push(pa * w + pb * u + pc * v);
+                out.normals.push((na * w + nb * u + nc * v).normalized().unwrap_or(na));
+            }
+        }
+        let at = |i: usize, j: usize| -> u32 {
+            // row i starts after rows 0..i, which hold (k+1) + k + … + (k-i+2) vertices
+            let start = i * (k + 1) - i * (i.saturating_sub(1)) / 2;
+            base + index.get(start + j).copied().unwrap_or(0)
+        };
+        for i in 0..k {
+            for j in 0..(k - i) {
+                out.triangles.push([at(i, j), at(i + 1, j), at(i, j + 1)]);
+                out.tri_face.push(face);
+                if j + 1 < k - i {
+                    out.triangles.push([at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)]);
+                    out.tri_face.push(face);
+                }
+            }
+        }
+    }
+    out
+}
+
+impl SimulationRun {
+    /// `mesh` (a body's display mesh) refined to the grid with its surface temperatures, made once
+    /// per body and mesh.
+    pub fn heat_mesh(&self, body: u32, mesh: &Arc<solidcraft_geom::Mesh>) -> Arc<HeatMesh> {
+        let key = (body, Arc::as_ptr(mesh) as usize);
+        if let Ok(cache) = self.heat_cache.lock()
+            && let Some((_, h)) = cache.get(&key)
+        {
+            return h.clone();
+        }
+        let refined = Arc::new(refine(mesh, self.results.grid.cell, MAX_HEAT_TRIANGLES));
+        let temperatures = refined.positions.iter().map(|p| self.results.surface_temperature(body, *p).unwrap_or(f64::NAN)).collect();
+        let h = Arc::new(HeatMesh { mesh: refined, temperatures });
+        if let Ok(mut cache) = self.heat_cache.lock() {
+            cache.insert(key, (mesh.clone(), h.clone()));
+        }
+        h
+    }
+}
+
+/// A solved body as the display draws it: the refined mesh and a colour per vertex for the
+/// temperature scale `lo..hi`.
+pub fn heat_display(
+    run: &SimulationRun,
+    body: u32,
+    mesh: &Arc<solidcraft_geom::Mesh>,
+    lo: f64,
+    hi: f64,
+) -> (Arc<solidcraft_geom::Mesh>, Vec<[u8; 3]>) {
+    let h = run.heat_mesh(body, mesh);
     let span = (hi - lo).max(1e-9);
-    mesh.positions
-        .iter()
-        .map(|p| match run.results.surface_temperature(body, *p) {
-            Some(t) => heat_color((t - lo) / span),
-            None => [120, 120, 120],
-        })
-        .collect()
+    let colors = h.temperatures.iter().map(|t| if t.is_finite() { heat_color((t - lo) / span) } else { [120, 120, 120] }).collect();
+    (h.mesh.clone(), colors)
 }
 
 /// One air-velocity arrow piece: a dim shaft or a bright tip, as a line segment.

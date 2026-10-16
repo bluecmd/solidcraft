@@ -71,8 +71,9 @@ fn heat_colours_span_the_body_range_and_arrows_follow_the_flow() {
     let (lo, hi) = super::body_range(&run);
     assert!(hi > lo);
     let mesh = s.world_state().bodies[0].mesh();
-    let colours = super::vertex_colors(&run, 0, &mesh, lo, hi);
-    assert_eq!(colours.len(), mesh.positions.len());
+    let (refined, colours) = super::heat_display(&run, 0, &mesh, lo, hi);
+    assert_eq!(colours.len(), refined.positions.len());
+    assert!(refined.triangles.len() > mesh.triangles.len(), "the box is refined to the grid");
     assert!(colours.iter().all(|c| c[3] == 255 && *c != [120, 120, 120, 255]), "every vertex found its cell");
     let mut sc = crate::gpu::GpuScene::default();
     super::velocity_arrows(&mut sc, &run);

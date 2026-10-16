@@ -641,9 +641,16 @@ pub fn legend(app: &SolveApp, painter: &egui::Painter, rect: egui::Rect) {
 
 pub use solidcraft_engine::cmd::simulation::body_range;
 
-/// Per-vertex colours of a body's drawn mesh from the solved temperatures.
-pub fn vertex_colors(run: &solidcraft_engine::SimulationRun, body: u32, mesh: &solidcraft_engine::geom::Mesh, lo: f64, hi: f64) -> Vec<[u8; 4]> {
-    solidcraft_engine::cmd::simulation::vertex_colors(run, body, mesh, lo, hi).into_iter().map(|c| [c[0], c[1], c[2], 255]).collect()
+/// A solved body's drawn mesh refined to the grid, and a colour per vertex from its temperatures.
+pub fn heat_display(
+    run: &solidcraft_engine::SimulationRun,
+    body: u32,
+    mesh: &std::sync::Arc<solidcraft_engine::geom::Mesh>,
+    lo: f64,
+    hi: f64,
+) -> (std::sync::Arc<solidcraft_engine::geom::Mesh>, Vec<[u8; 4]>) {
+    let (m, colors) = solidcraft_engine::cmd::simulation::heat_display(run, body, mesh, lo, hi);
+    (m, colors.into_iter().map(|c| [c[0], c[1], c[2], 255]).collect())
 }
 
 /// Air velocity arrows through the air cells of the shown simulation.
