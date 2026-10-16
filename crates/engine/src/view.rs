@@ -427,23 +427,14 @@ fn build_scene(
         })
         .flatten()
         .collect();
-    // A shown simulation colours the bodies it solved by their surface temperature, and in
-    // airflow mode draws its arrows.
+    // A shown simulation colours the bodies it solved by their surface temperature, and draws
+    // its slices, airflow (arrows or streamlines), pinned probes and setup glyphs.
     let sim = s.simulation.as_ref().filter(|_| s.simulation_display != crate::SimulationDisplay::Off).map(|r| {
-        let (lo, hi) = crate::cmd::simulation::body_range(r);
+        let (lo, hi) = crate::cmd::simulation_view::temperature_scale(r, &s.simulation_view);
         (r, lo, hi)
     });
-    if let Some((r, _, _)) = &sim
-        && s.simulation_display == crate::SimulationDisplay::Velocity
-    {
-        for seg in crate::cmd::simulation::velocity_arrows(r) {
-            sc.lines.push(SceneLine {
-                points: vec![seg.a, seg.b],
-                color: Rgb(seg.color[0], seg.color[1], seg.color[2]),
-                width: seg.width,
-                on_top: false,
-            });
-        }
+    if let Some((r, lo, hi)) = &sim {
+        simulation_scene(s, r, (*lo, *hi), &mut sc);
     }
     for body in st.bodies.iter().filter(|b| s.body_visible(&b.name)) {
         let selected = selected_occurrences.contains(&body.name) || s.selection.iter().any(|x| matches!(x, Sel::Body { name } if *name == body.name));
@@ -486,6 +477,81 @@ fn build_scene(
         }
     }
     sc
+}
+
+/// What a shown simulation adds to a picture besides the bodies' colours: slices as meshes in
+/// per-vertex colours, velocity arrows or streamlines, pinned probes as small crosses, and the
+/// setup glyphs (lines only: labels are the viewport's).
+fn simulation_scene(s: &Session, r: &crate::SimulationRun, t_range: (f64, f64), sc: &mut Scene) {
+    use crate::cmd::simulation_view as sv;
+    let line = |a: Vec3, b: Vec3, c: [u8; 3], width: f64| SceneLine { points: vec![a, b], color: Rgb(c[0], c[1], c[2]), width, on_top: false };
+    match s.simulation_display {
+        crate::SimulationDisplay::Velocity => {
+            for seg in crate::cmd::simulation::velocity_arrows(r) {
+                sc.lines.push(line(seg.a, seg.b, seg.color, seg.width));
+            }
+        }
+        crate::SimulationDisplay::Streamlines => {
+            let study = s.doc.simulation.studies.get(&r.study);
+            for path in sv::streamlines(r, study, s.simulation_view.seeds) {
+                // one line per run of points in the same (quantised) colour
+                let mut run: Vec<Vec3> = Vec::new();
+                let mut colour = [0u8; 3];
+                for (p, c) in path.points.iter().zip(&path.colors) {
+                    let q = c.map(|x| x & 0xF8);
+                    if run.is_empty() {
+                        colour = q;
+                    } else if q != colour {
+                        run.push(*p);
+                        sc.lines.push(SceneLine {
+                            points: std::mem::take(&mut run),
+                            color: Rgb(colour[0], colour[1], colour[2]),
+                            width: 1.6,
+                            on_top: false,
+                        });
+                        colour = q;
+                    }
+                    run.push(*p);
+                }
+                if run.len() > 1 {
+                    sc.lines.push(SceneLine { points: run, color: Rgb(colour[0], colour[1], colour[2]), width: 1.6, on_top: false });
+                }
+            }
+        }
+        _ => {}
+    }
+    for slice in &s.simulation_view.slices {
+        let quads = sv::slice_quads(r, slice, t_range);
+        if quads.corners.is_empty() {
+            continue;
+        }
+        let n = slice.axis.unit();
+        let mut mesh = solidcraft_geom::Mesh::default();
+        let mut colors = Vec::with_capacity(quads.corners.len() * 4);
+        for (q, c) in quads.corners.iter().zip(&quads.colors) {
+            let base = mesh.positions.len() as u32;
+            mesh.positions.extend_from_slice(q);
+            mesh.normals.extend_from_slice(&[n; 4]);
+            mesh.triangles.push([base, base + 1, base + 2]);
+            mesh.triangles.push([base, base + 2, base + 3]);
+            mesh.tri_face.extend_from_slice(&[0, 0]);
+            colors.extend_from_slice(&[Rgb(c[0], c[1], c[2]); 4]);
+        }
+        sc.meshes.push(SceneMesh { mesh: Arc::new(mesh), color: Rgb(128, 128, 128), face_colors: Vec::new(), vertex_colors: colors });
+    }
+    let size = r.results.grid.cell * 2.5;
+    for p in &s.simulation_view.probes {
+        for (a, b) in sv::probe_marker(p.point, size) {
+            sc.lines.push(line(a, b, [250, 250, 250], 2.0));
+        }
+    }
+    if s.simulation_view.setup
+        && let Some((_, study)) = sv::shown_study(s)
+    {
+        for g in sv::setup_glyphs(s, study, Some(r)).lines {
+            sc.lines.push(SceneLine { on_top: g.on_top, ..line(g.a, g.b, g.color, g.width) });
+        }
+    }
 }
 
 /// Where the plane through `o` with normal `n` cuts a mesh: one segment per crossed triangle,
