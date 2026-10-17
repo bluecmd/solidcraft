@@ -102,6 +102,23 @@ fn admission_rejects_hostile_parameters_and_transparency() {
 }
 
 #[test]
+fn admission_applies_the_gpu_estimate_instead_of_the_cpu_raster_budget() {
+    // A library-bounded source (not an ordinary UI scene): about 100 MiB of face appearances
+    // on a small mesh at the largest image. Its CPU raster estimate is above 384 MiB (covered
+    // in the render crate); the GPU's own estimate stays within its 512 MiB job cap.
+    let count = (100 * 1024 * 1024 / std::mem::size_of::<solidcraft_render::FaceAppearance>()).min(1_000_000);
+    let mut scene = sphere(white());
+    let appearance = solidcraft_render::FaceAppearance { face: 0, color: [255; 3], opacity: 1.0, surface: None };
+    scene.meshes[0].faces = vec![appearance; count];
+    let r = request(2048);
+    let a = admission(&scene, &r, JobOptions::default()).unwrap();
+    assert!(a.estimated_total_bytes <= MAX_JOB_BYTES, "{a:?}");
+    assert_eq!(a.face_appearances, count as u64);
+    // The CPU host still rejects the same source.
+    assert_eq!(solidcraft_render::job::admit(&scene, &r).unwrap_err().code, ErrorCode::LimitExceeded);
+}
+
+#[test]
 fn bvh_handles_empty_and_cancelled_scenes() {
     let empty = ProductScene { meshes: Vec::new(), bounds: Aabb3::EMPTY };
     let upload = scene::flatten(&empty, Vec3::ZERO, &CancelToken::default()).unwrap();
