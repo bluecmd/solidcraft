@@ -23,6 +23,7 @@ mod tests;
 
 pub struct State {
     pub host: Option<ExecutorDescriptor>,
+    pub path_host: Option<solidcraft_engine::render::job::ImageHost>,
     pub image_host: Option<solidcraft_engine::render::job::CpuHost>,
     pub view: ViewState,
     revision: u64,
@@ -45,6 +46,8 @@ pub struct ViewState {
     job: Option<solidcraft_engine::render::job::JobId>,
     completed: Option<solidcraft_engine::render::job::JobId>,
     transparent: bool,
+    progressive: bool,
+    samples: u32,
     overwrite: bool,
 }
 
@@ -60,6 +63,8 @@ impl Default for ViewState {
             job: None,
             completed: None,
             transparent: false,
+            progressive: false,
+            samples: 64,
             overwrite: false,
         }
     }
@@ -73,6 +78,8 @@ struct CheckedImage {
     visibility: u64,
     params: serde_json::Value,
     host: CpuHost,
+    /// The registered progressive host a progressive Check resolved to.
+    registered: Option<solidcraft_engine::render::job::ImageHost>,
 }
 
 impl std::fmt::Debug for CheckedImage {
@@ -85,6 +92,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             host: None,
+            path_host: None,
             image_host: None,
             view: Default::default(),
             revision: u64::MAX,
@@ -129,6 +137,12 @@ pub fn host_executor(max_dimension: u32, depth: bool, samples: u32) -> Result<Ex
 }
 
 pub fn sync_backend(app: &mut SolveApp) {
+    if let Some(host) = app.render_workspace.path_host.clone()
+        && let Err(e) = app.session.register_render_job_host(host)
+    {
+        app.set_status(e.to_string(), true);
+    }
+
     if app.session.render_job_host().is_none()
         && let Some(host) = &app.render_workspace.image_host
         && let Err(e) = app.session.set_render_job_host(Some(host.clone()))
@@ -158,7 +172,8 @@ pub fn tick(app: &mut SolveApp, ctx: &egui::Context) {
 pub fn reset_document(app: &mut SolveApp) {
     let host = app.render_workspace.host.clone();
     let image_host = app.render_workspace.image_host.clone();
-    app.render_workspace = State { host, image_host, ..Default::default() };
+    let path_host = app.render_workspace.path_host.clone();
+    app.render_workspace = State { host, image_host, path_host, ..Default::default() };
     if active(app) {
         app.ui.tab = "SOLID".into();
     }
@@ -310,6 +325,15 @@ fn image_controls(app: &mut SolveApp, ui: &mut egui::Ui) {
             app.render_workspace.view.dirty = true;
         }
     }
+    // GPU progressive samples per pixel are separate from CPU primary-AA and reflection samples.
+    if app.render_workspace.path_host.is_some() && app.render_workspace.view.integrator == Integrator::Raster {
+        let label = app.tr("render.image_progressive").to_string();
+        ui.checkbox(&mut app.render_workspace.view.progressive, label);
+        if app.render_workspace.view.progressive {
+            let label = app.tr("render.image_samples").to_string();
+            ui.add(egui::Slider::new(&mut app.render_workspace.view.samples, 1..=4096).logarithmic(true).text(label));
+        }
+    }
     let transparent_label = app.tr("render.image_transparent").to_string();
     ui.add_enabled(
         app.render_workspace.view.integrator == Integrator::Raster,
@@ -428,6 +452,13 @@ fn image_params(app: &SolveApp) -> Result<serde_json::Value, String> {
         view.raytrace.validate().map_err(|e| e.to_string())?;
         params["integrator"] = json!("raytrace");
         params["raytrace"] = json!(view.raytrace);
+    } else if view.progressive {
+        let host = app.render_workspace.path_host.as_ref().ok_or_else(|| app.tr("render.image_host_missing").to_string())?;
+        if !host.is_available() {
+            return Err(app.tr("render.image_host_missing").to_string());
+        }
+        params["progressive"] = json!(true);
+        params["samples"] = json!(view.samples);
     }
     Ok(params)
 }
@@ -440,12 +471,14 @@ fn image_visibility(app: &SolveApp) -> u64 {
 }
 
 fn remember_image_check(app: &mut SolveApp, params: serde_json::Value) {
+    let registered = if params["progressive"] == json!(true) { app.render_workspace.path_host.clone() } else { None };
     app.render_workspace.view.checked_image = app.session.render_job_host().map(|host| CheckedImage {
         document: Arc::downgrade(&app.session.doc),
         revision: app.session.revision,
         visibility: image_visibility(app),
         params,
         host: host.clone(),
+        registered,
     });
 }
 
@@ -456,6 +489,9 @@ fn invalidate_image_check(app: &mut SolveApp, params: Option<&serde_json::Value>
             && checked.visibility == image_visibility(app)
             && params == Some(&checked.params)
             && app.session.render_job_host().is_some_and(|host| host.same_host(&checked.host) && host.is_available())
+            && checked.registered.as_ref().is_none_or(|registered| {
+                registered.is_available() && app.render_workspace.path_host.as_ref().is_some_and(|host| host.same_host(registered))
+            })
     });
     if !valid {
         app.render_workspace.view.checked_image = None;
@@ -533,6 +569,9 @@ fn select_image_method(app: &mut SolveApp, integrator: Integrator) -> Result<(),
     view.checked_image = None;
     if integrator == Integrator::Raster {
         view.raytrace = RaytraceOptions::default();
+    } else {
+        // CPU raytracing never runs on the progressive host.
+        view.progressive = false;
     }
     Ok(())
 }

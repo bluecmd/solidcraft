@@ -409,6 +409,64 @@ fn saved_camera_survives_frames_and_product_fit_ignores_selection() {
     assert_eq!(h.app.cam, design);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn progressive_image_controls_route_to_the_registered_host() {
+    let host = match solidcraft_gpu::path::host() {
+        Ok(host) => host,
+        Err(e) => {
+            assert!(std::env::var_os("SOLIDCRAFT_REQUIRE_GPU").is_none(), "required GPU unavailable: {e}");
+            eprintln!("skipping progressive UI device test: {e}");
+            return;
+        }
+    };
+    let mut h = Harness::new();
+    h.app.render_workspace.path_host = Some(host);
+    sync_backend(&mut h.app);
+    h.app.run("solid.box", json!({"length":10,"width":20,"height":5})).unwrap();
+    h.app.session.mark_saved();
+    h.call("ui.resize", json!({"width":1600,"height":1600}));
+    enter(&mut h.app, true).unwrap();
+    h.app.render_workspace.view.draft.width = 16;
+    h.app.render_workspace.view.draft.height = 16;
+    h.app.render_workspace.view.samples = 4;
+    h.frames(3);
+    let doc = h.app.session.doc.clone();
+    let undo = h.app.session.undo.len();
+    h.step(&json!({"widget":"Progressive rendering"})).unwrap();
+    assert!(h.app.render_workspace.view.progressive);
+    // The shared Check/Start builder carries GPU samples separately from CPU raytrace options.
+    let params = image_params(&h.app).unwrap();
+    assert_eq!((params["progressive"].clone(), params["samples"].clone()), (json!(true), json!(4)));
+    assert!(params.get("integrator").is_none() && params.get("raytrace").is_none());
+    remember_image_check(&mut h.app, params.clone());
+    invalidate_image_check(&mut h.app, Some(&params));
+    assert!(h.app.render_workspace.view.checked_image.as_ref().is_some_and(|checked| checked.registered.is_some()));
+    h.app.render_workspace.view.samples = 5;
+    let changed = image_params(&h.app).ok();
+    invalidate_image_check(&mut h.app, changed.as_ref());
+    assert!(h.app.render_workspace.view.checked_image.is_none(), "progressive samples are part of the checked request");
+    h.app.render_workspace.view.samples = 4;
+    let start = h.app.tr("render.image_start").to_string();
+    h.step(&json!({"widget":start})).unwrap();
+    let job = h.app.render_workspace.view.job.unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.app.render_workspace.view.completed.is_none() {
+        assert!(std::time::Instant::now() < deadline, "progressive UI job did not complete");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.frames(1);
+    }
+    let status = h.app.session.execute("render.status", &json!({"job":job})).unwrap();
+    assert_eq!(status["frame"]["executor"], "gpu-path", "{status}");
+    assert_eq!(status["options"]["samples"], 4);
+    let export = h.app.tr("render.image_export").to_string();
+    h.step(&json!({"widget":export})).unwrap();
+    assert!(h.dir.join("render.png").is_file());
+    assert!(Arc::ptr_eq(&doc, &h.app.session.doc));
+    assert_eq!(h.app.session.undo.len(), undo);
+    assert!(!h.app.session.is_dirty());
+}
+
 #[test]
 fn clicked_render_workspace_saves_one_setup_and_restores_design_view() {
     for language in ["en", "de", "ko", "ru"] {
