@@ -73,6 +73,20 @@ pub fn admit(scene: &ProductScene, request: &ImageRequest) -> Result<Admission> 
 
 /// Shared dimension/source admission; integrators add their own complete work budgets.
 pub(crate) fn admit_base(scene: &ProductScene, request: &ImageRequest) -> Result<Admission> {
+    admit_bounded(scene, request, MAX_TRIANGLES)
+}
+
+/// Common source and camera admission for registered raster-request executors. Executors
+/// additionally budget their own preparation and pixel storage, and validate triangle
+/// contents before uploading anything to a device. Raytrace requests run only on the CPU host.
+pub fn admit_geometry(scene: &ProductScene, request: &ImageRequest, max_triangles: u64) -> Result<Admission> {
+    if request.integrator != super::Integrator::Raster || request.raytrace.is_some() {
+        return Err(JobError::new(ErrorCode::InvalidRequest, "integrator: raytrace and its options require the CPU image host"));
+    }
+    admit_bounded(scene, request, max_triangles)
+}
+
+fn admit_bounded(scene: &ProductScene, request: &ImageRequest, max_triangles: u64) -> Result<Admission> {
     if !request.camera.is_valid() {
         return Err(JobError::new(ErrorCode::InvalidRequest, "invalid image camera"));
     }
@@ -100,8 +114,8 @@ pub(crate) fn admit_base(scene: &ProductScene, request: &ImageRequest) -> Result
         triangles = triangles.checked_add(m.triangles.len() as u64).ok_or_else(|| limit("triangle count overflow"))?;
         faces = faces.checked_add(body.faces.len() as u64).ok_or_else(|| limit("appearance count overflow"))?;
         polylines = polylines.checked_add(m.edges.len() as u64 + m.edge_faces.len() as u64).ok_or_else(|| limit("edge count overflow"))?;
-        if triangles > MAX_TRIANGLES || faces > MAX_TRIANGLES || polylines > MAX_TRIANGLES {
-            return Err(limit("product image exceeds the 262144 triangle/appearance/polyline admission cap"));
+        if triangles > max_triangles || faces > max_triangles || polylines > max_triangles {
+            return Err(limit(&format!("product image exceeds the {max_triangles} triangle/appearance/polyline admission cap")));
         }
         add_bytes(&mut geometry, m.positions.capacity(), std::mem::size_of::<Vec3>())?;
         add_bytes(&mut geometry, m.normals.capacity(), std::mem::size_of::<Vec3>())?;
