@@ -71,6 +71,8 @@ impl Default for ViewState {
 }
 
 /// Advisory preflight identity only; no mesh, resource or extra host is created.
+/// The image panel requires the session's CPU image host for every method, including
+/// progressive requests routed to a registered host; GPU-only sessions are not a panel mode.
 #[derive(Clone)]
 struct CheckedImage {
     document: std::sync::Weak<solidcraft_engine::doc::Document>,
@@ -427,6 +429,8 @@ fn image_host(app: &SolveApp, integrator: Integrator) -> Result<&CpuHost, String
 }
 
 /// The one UI request path for Check and Start. Runtime options never enter RenderSetup.
+/// Requires the session's CPU image host (see [`CheckedImage`]); progressive requests also
+/// require an available registered progressive host.
 fn image_params(app: &SolveApp) -> Result<serde_json::Value, String> {
     let view = &app.render_workspace.view;
     image_host(app, view.integrator)?;
