@@ -147,6 +147,109 @@ pub fn grid_plane(back: Vec3) -> (Vec3, Vec3) {
     }
 }
 
+/// How the grid follows the view as it orbits toward the ground's edge. Candidates under
+/// comparison, picked with `SOLIDCRAFT_GRID_FEEL` (`snap`, `axis`, `crossfade`, `fade`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum GridFeel {
+    /// [`grid_plane`]: the upright plane replaces the ground at once within about 11.5° of edge-on.
+    #[default]
+    Snap,
+    /// The ground, except for a view looking almost straight along X or Y (Front, Back, Left,
+    /// Right), which gets the upright plane facing it.
+    AxisViews,
+    /// The ground fades out and the upright planes fade in between about 14° and 10°; between
+    /// the two upright planes the grid fades across 45° too, so orbiting never pops.
+    CrossFade,
+    /// Always the ground, fading out as it turns edge-on (none in the side views).
+    FloorFade,
+}
+
+impl GridFeel {
+    pub fn parse(s: &str) -> Option<GridFeel> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "snap" => Some(GridFeel::Snap),
+            "axis" => Some(GridFeel::AxisViews),
+            "crossfade" => Some(GridFeel::CrossFade),
+            "fade" => Some(GridFeel::FloorFade),
+            _ => None,
+        }
+    }
+
+    /// The feel `SOLIDCRAFT_GRID_FEEL` asks for (read once), else [`GridFeel::Snap`].
+    pub fn current() -> GridFeel {
+        static FEEL: std::sync::OnceLock<GridFeel> = std::sync::OnceLock::new();
+        *FEEL.get_or_init(|| std::env::var("SOLIDCRAFT_GRID_FEEL").ok().and_then(|s| GridFeel::parse(&s)).unwrap_or_default())
+    }
+}
+
+fn smoothstep(lo: f64, hi: f64, x: f64) -> f64 {
+    let t = ((x - lo) / (hi - lo)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The planes the grid lies in for a view whose direction toward the eye is `back` (in the
+/// camera's Z-up frame): their two axes and opacity (0 to 1), the faint ones left out.
+pub fn grid_planes(back: Vec3, feel: GridFeel) -> Vec<(Vec3, Vec3, f64)> {
+    const GROUND: (Vec3, Vec3) = (Vec3::X, Vec3::Y);
+    // Facing Y (seen from the front or back) and facing X (from the right or left).
+    const FACING_Y: (Vec3, Vec3) = (Vec3::X, Vec3::Z);
+    const FACING_X: (Vec3, Vec3) = (Vec3::Y, Vec3::Z);
+    if !(back.x.is_finite() && back.y.is_finite() && back.z.is_finite()) {
+        return vec![(GROUND.0, GROUND.1, 1.0)];
+    }
+    let planes = match feel {
+        GridFeel::Snap => vec![(grid_plane(back), 1.0)],
+        GridFeel::AxisViews => {
+            // Within about 6° of looking along X or Y.
+            let along = 6f64.to_radians().cos();
+            if back.y.abs() >= along {
+                vec![(FACING_Y, 1.0)]
+            } else if back.x.abs() >= along {
+                vec![(FACING_X, 1.0)]
+            } else {
+                vec![(GROUND, 1.0)]
+            }
+        }
+        GridFeel::CrossFade => {
+            let ground = smoothstep(10f64.to_radians().sin(), 14f64.to_radians().sin(), back.z.abs());
+            let h = (back.x * back.x + back.y * back.y).sqrt().max(1e-12);
+            // 0 at 45°, ±0.28 about 8° either side of it.
+            let toward_y = smoothstep(-0.28, 0.28, (back.y.abs() - back.x.abs()) / h);
+            vec![(GROUND, ground), (FACING_Y, (1.0 - ground) * toward_y), (FACING_X, (1.0 - ground) * (1.0 - toward_y))]
+        }
+        GridFeel::FloorFade => vec![(GROUND, smoothstep(2f64.to_radians().sin(), 15f64.to_radians().sin(), back.z.abs()))],
+    };
+    planes.into_iter().filter(|(_, a)| *a > 0.01).map(|((u, v), a)| (u, v, a)).collect()
+}
+
+/// A grid line in the camera's Z-up frame: its ends, whether it is a major line, its opacity.
+pub struct GridLine {
+    pub ends: [Vec3; 2],
+    pub major: bool,
+    pub alpha: f64,
+}
+
+/// The grid of a view ([`grid_planes`], [`grid_step`]) in the camera's Z-up frame, at most
+/// `2 × max_lines + 1` lines each way per plane.
+pub fn grid_lines(cam: &Camera, feel: GridFeel, max_lines: i64) -> Vec<GridLine> {
+    let (minor, major) = grid_step(cam.half_height());
+    let ext = (cam.half_height() * 3.0 / major).ceil() * major;
+    let tf = cam.to_frame(cam.target);
+    let n = ((ext / minor) as i64).clamp(1, max_lines.max(1));
+    let mut out = Vec::new();
+    for (u, v, alpha) in grid_planes(cam.to_frame(cam.back()), feel) {
+        let snap = |a: Vec3| a * ((tf.dot(a) / major).round() * major);
+        let c = snap(u) + snap(v);
+        for i in -n..=n {
+            let t = i as f64 * minor;
+            let major = (t / major).fract().abs() < 1e-9;
+            out.push(GridLine { ends: [c + u * t - v * ext, c + u * t + v * ext], major, alpha });
+            out.push(GridLine { ends: [c - u * ext + v * t, c + u * ext + v * t], major, alpha });
+        }
+    }
+    out
+}
+
 /// Grid spacing (minor, major) for a view of the given half height.
 pub fn grid_step(half_height: f64) -> (f64, f64) {
     let raw = (half_height / 10.0).max(1e-3);
@@ -393,22 +496,20 @@ fn build_scene(
     // Grid on the ground plane (XY with Z up, XZ with Y up), or the upright origin plane facing
     // a view that sees the ground edge-on ([`grid_plane`]), drawn under the model as in the viewport.
     if guides.grid {
-        let (minor, major) = grid_step(cam.half_height());
-        let ext = (cam.half_height() * 3.0 / major).ceil() * major;
-        let tf = cam.to_frame(cam.target);
-        let (u, v) = grid_plane(cam.to_frame(cam.back()));
-        let snap = |a: Vec3| a * ((tf.dot(a) / major).round() * major);
-        let c = snap(u) + snap(v);
-        let w = |p: Vec3| cam.from_frame(p);
-        let n = ((ext / minor) as i64).clamp(1, 400);
-        for i in -n..=n {
-            let t = i as f64 * minor;
-            let major_line = (t / major).fract().abs() < 1e-9;
-            let col = if major_line { p.grid_major } else { p.grid };
+        // A faded line blends into the background (the middle of its gradient).
+        let (top, bottom) = p.background;
+        let fade = |c: Rgb, a: f64| {
+            let mix = |x: u8, b0: u8, b1: u8| {
+                let b = (f64::from(b0) + f64::from(b1)) / 2.0;
+                (b + (f64::from(x) - b) * a).round().clamp(0.0, 255.0) as u8
+            };
+            Rgb(mix(c.0, top.0, bottom.0), mix(c.1, top.1, bottom.1), mix(c.2, top.2, bottom.2))
+        };
+        for l in grid_lines(cam, GridFeel::current(), 400) {
+            let col = fade(if l.major { p.grid_major } else { p.grid }, l.alpha);
             // The viewport's widths (pixels).
-            let width = if major_line { 1.0 } else { 0.7 };
-            sc.grid.push(SceneLine { points: vec![w(c + u * t - v * ext), w(c + u * t + v * ext)], color: col, width, on_top: false });
-            sc.grid.push(SceneLine { points: vec![w(c - u * ext + v * t), w(c + u * ext + v * t)], color: col, width, on_top: false });
+            let width = if l.major { 1.0 } else { 0.7 };
+            sc.grid.push(SceneLine { points: l.ends.iter().map(|&e| cam.from_frame(e)).collect(), color: col, width, on_top: false });
         }
     }
     // The origin's axes, each unless hidden one by one (`browser.visibility`), as in the viewport.
@@ -603,6 +704,59 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// The direction toward the eye at an elevation and an angle round from +Y (degrees).
+    fn back(elevation: f64, around: f64) -> Vec3 {
+        let (e, a) = (elevation.to_radians(), around.to_radians());
+        Vec3::new(e.cos() * a.sin(), e.cos() * a.cos(), e.sin())
+    }
+
+    fn opacity(planes: &[(Vec3, Vec3, f64)], normal: Vec3) -> f64 {
+        planes.iter().filter(|(u, v, _)| u.cross(*v).dot(normal).abs() > 0.999).map(|p| p.2).sum()
+    }
+
+    /// The candidate feels of the grid near edge-on: Snap swaps planes at 11.5°, AxisViews only
+    /// in views along an axis, CrossFade blends without a jump, FloorFade keeps the ground.
+    #[test]
+    fn grid_feels() {
+        let snap = |b| grid_planes(b, GridFeel::Snap);
+        assert_eq!(opacity(&snap(back(12.0, 30.0)), Vec3::Z), 1.0);
+        assert_eq!(opacity(&snap(back(11.0, 30.0)), Vec3::Y), 1.0);
+
+        let axis = |b| grid_planes(b, GridFeel::AxisViews);
+        assert_eq!(opacity(&axis(back(0.0, 30.0)), Vec3::Z), 1.0, "orbiting level keeps the ground");
+        assert_eq!(opacity(&axis(back(0.0, 0.0)), Vec3::Y), 1.0, "the front view faces Y");
+        assert_eq!(opacity(&axis(back(0.0, 90.0)), Vec3::X), 1.0, "the right view faces X");
+        assert_eq!(opacity(&axis(back(10.0, 0.0)), Vec3::Z), 1.0);
+
+        // Small steps of the camera change the opacities a little: no pop anywhere.
+        let fade = |b| grid_planes(b, GridFeel::CrossFade);
+        for (e0, e1, a0, a1) in [(9.0, 15.0, 30.0, 30.0), (5.0, 5.0, 30.0, 60.0), (-15.0, -9.0, 10.0, 10.0)] {
+            let mut last: Option<Vec<(Vec3, Vec3, f64)>> = None;
+            for i in 0..=120 {
+                let t = f64::from(i) / 120.0;
+                let p = fade(back(e0 + (e1 - e0) * t, a0 + (a1 - a0) * t));
+                let sum: f64 = p.iter().map(|x| x.2).sum();
+                assert!((sum - 1.0).abs() < 0.02, "the planes share the grid: {sum}");
+                if let Some(l) = &last {
+                    for n in [Vec3::X, Vec3::Y, Vec3::Z] {
+                        assert!((opacity(&p, n) - opacity(l, n)).abs() < 0.1, "a jump at {e0}..{e1}, {a0}..{a1}, step {i}");
+                    }
+                }
+                last = Some(p);
+            }
+        }
+        assert_eq!(opacity(&fade(back(30.0, 20.0)), Vec3::Z), 1.0);
+        assert_eq!(opacity(&fade(back(0.0, 0.0)), Vec3::Y), 1.0);
+
+        let floor = |b| grid_planes(b, GridFeel::FloorFade);
+        assert_eq!(opacity(&floor(back(30.0, 20.0)), Vec3::Z), 1.0);
+        assert!(opacity(&floor(back(8.0, 20.0)), Vec3::Z) < 0.5);
+        assert!(floor(back(0.0, 0.0)).is_empty(), "no grid edge-on");
+        for f in [GridFeel::Snap, GridFeel::AxisViews, GridFeel::CrossFade, GridFeel::FloorFade] {
+            assert_eq!(grid_planes(Vec3::new(f64::NAN, 0.0, 1.0), f).len(), 1);
+        }
+    }
 
     /// Headless pictures show appearances as the viewport does: a body's colour and faces with
     /// looks of their own (the picture itself: `solidcraft-gpu`'s capture tests).

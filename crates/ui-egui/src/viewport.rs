@@ -7,7 +7,7 @@ use solidcraft_engine::Sel;
 use solidcraft_engine::geom::{Vec2, Vec3};
 use solidcraft_engine::render::{Camera, Mat4, Rgb};
 use solidcraft_engine::sketch::CurveKind;
-use solidcraft_engine::view::{colors, grid_plane, grid_step, sketch_lines_with_sampler};
+use solidcraft_engine::view::{GridFeel, colors, grid_lines, grid_step, sketch_lines_with_sampler};
 use std::hash::{Hash, Hasher};
 
 use crate::gpu::{Frame, GpuScene, GpuTarget, SceneSlot, ViewportCallback};
@@ -727,23 +727,14 @@ fn build_sketch_scene(app: &SolveApp, proj: &Proj) -> GpuScene {
     let st = s.world_state();
     let mut fill_budget = 131_072;
     if app.ui.show_grid && !active_view(app).hide_grid {
-        let (minor, major) = grid_step(app.cam.half_height());
-        let ext = (app.cam.half_height() * 3.0 / major).ceil() * major;
         // The ground plane: XY with Z up, XZ with Y up (laid out in the camera's Z-up frame), or
-        // the upright origin plane facing the view when the ground is seen edge-on.
-        let tf = app.cam.to_frame(app.cam.target);
-        let (u, v) = grid_plane(app.cam.to_frame(app.cam.back()));
-        let snap = |a: Vec3| a * ((tf.dot(a) / major).round() * major);
-        let c = snap(u) + snap(v);
+        // the upright origin planes facing the view as the ground turns edge-on ([`GridFeel`]).
         let w3 = |p: Vec3| app.cam.from_frame(p).to_f32();
-        let n = ((ext / minor) as i64).clamp(1, 300);
-        for i in -n..=n {
-            let t = i as f64 * minor;
-            let maj = (t / major).round() * major == t;
-            let col = if maj { c4(tk.grid_major) } else { c4(tk.grid) };
-            let w = if maj { 1.0 } else { 0.7 };
-            sc.under_line(w3(c + u * t - v * ext), w3(c + u * t + v * ext), col, w);
-            sc.under_line(w3(c - u * ext + v * t), w3(c + u * ext + v * t), col, w);
+        for l in grid_lines(&app.cam, GridFeel::current(), 300) {
+            let mut col = if l.major { c4(tk.grid_major) } else { c4(tk.grid) };
+            col[3] = (f64::from(col[3]) * l.alpha).round().clamp(0.0, 255.0) as u8;
+            let w = if l.major { 1.0 } else { 0.7 };
+            sc.under_line(w3(l.ends[0]), w3(l.ends[1]), col, w);
         }
     }
     for sid in visible_sketches(app) {
@@ -5923,6 +5914,7 @@ mod view_home_tests;
 mod grid_plane_tests {
     use super::*;
     use solidcraft_engine::render::{StandardView, UpAxis};
+    use solidcraft_engine::view::grid_plane;
 
     fn plane(view: StandardView, up: UpAxis) -> (Vec3, Vec3) {
         let (yaw, pitch) = view.angles();
