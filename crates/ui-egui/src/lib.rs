@@ -518,7 +518,7 @@ impl SolveApp {
         };
         #[cfg(not(target_arch = "wasm32"))]
         if self.render_workspace.path_host.is_none() {
-            match solidcraft_gpu::path::host() {
+            match solidcraft_gpu::path::host_on_adapter(&rs.adapter) {
                 Ok(host) => self.render_workspace.path_host = Some(host),
                 Err(e) => log::warn!("progressive render unavailable: {e}"),
             }

@@ -166,7 +166,11 @@ fn sample_path(pixel: u32) -> vec4<f32> {
         var n = unit(t.n0.xyz*(1.0-hit.uv.x-hit.uv.y)+t.n1.xyz*hit.uv.x+t.n2.xyz*hit.uv.y);
         if dot(n,geometric)<0.0 { n = -n; }
         if dot(n,v)<=0.0 { n = geometric; }
-        o += d*hit.distance + geometric*(u.lighting.x*2.0);
+        // Recover the surface point from barycentrics. A distant ray's f32 distance
+        // loses precision on skinny triangles; o+d*t can land behind the surface
+        // and make the next shadow ray intersect the same face.
+        o = t.p0.xyz*(1.0-hit.uv.x-hit.uv.y) + t.p1.xyz*hit.uv.x + t.p2.xyz*hit.uv.y
+            + geometric*(u.lighting.x*2.0);
         for (var i=0u; i<3u; i+=1u) {
             let light = lights[i];
             if u.lighting.z > 0.0 && dot(geometric,light.xyz)>0.0 && dot(n,light.xyz)>0.0 {

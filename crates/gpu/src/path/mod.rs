@@ -50,6 +50,20 @@ pub fn host() -> Result<ImageHost> {
     ImageHost::with_executor(Arc::new(Executor::new(device, queue)?))
 }
 
+/// Open an independent job device on the viewport's selected adapter. In particular,
+/// software fallback and safe mode must not rediscover a failing hardware driver.
+/// An explicit incompatible SOLIDCRAFT_GPU policy leaves this executor unavailable.
+pub fn host_on_adapter(adapter: &wgpu::Adapter) -> Result<ImageHost> {
+    let policy = crate::select::Policy::from_env().map_err(gpu)?;
+    let info = adapter.get_info();
+    if !policy.admits(crate::select::tier_of(info.device_type)) {
+        return Err(gpu(format!("viewport adapter does not satisfy SOLIDCRAFT_GPU={}", policy.name())));
+    }
+    let (device, queue) = crate::open_device(adapter).map_err(gpu)?;
+    log::info!("gpu-path viewport adapter: {} ({:?})", info.name, info.device_type);
+    ImageHost::with_executor(Arc::new(Executor::new(device, queue)?))
+}
+
 struct Context {
     device: wgpu::Device,
     queue: wgpu::Queue,

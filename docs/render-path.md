@@ -5,6 +5,9 @@ existing CPU image host. `render.backends` then exposes `builtin/gpu-path` with
 Preview, Image, PNG, Pbr and Progressive. The browser keeps its CPU image host.
 Device discovery follows `SOLIDCRAFT_GPU` and `WGPU_BACKEND`; a device which cannot
 create the compute pipeline does not register an available path executor.
+The native UI opens its independent job device on the viewport's selected adapter,
+so software fallback and safe mode do not rediscover a failing hardware driver.
+An incompatible explicit GPU policy leaves progressive rendering unavailable there.
 
 In the Render workspace, enable **Progressive rendering** and select samples per
 pixel before checking or starting an image. These controls are transient image-job

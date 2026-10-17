@@ -412,7 +412,10 @@ fn saved_camera_survives_frames_and_product_fit_ignores_selection() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn progressive_image_controls_route_to_the_registered_host() {
-    let host = match solidcraft_gpu::path::host() {
+    let host = solidcraft_gpu::select::Policy::from_env()
+        .and_then(|policy| solidcraft_gpu::select::pick(policy).ok_or_else(|| "no qualifying adapter".to_string()))
+        .and_then(|(adapter, _)| solidcraft_gpu::path::host_on_adapter(&adapter).map_err(|e| e.to_string()));
+    let host = match host {
         Ok(host) => host,
         Err(e) => {
             assert!(std::env::var_os("SOLIDCRAFT_REQUIRE_GPU").is_none(), "required GPU unavailable: {e}");

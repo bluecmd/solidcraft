@@ -301,7 +301,8 @@ pub fn panel(app: &mut SolveApp, ui: &mut egui::Ui) {
 
 fn image_controls(app: &mut SolveApp, ui: &mut egui::Ui) {
     ui.heading(app.tr("render.image_title"));
-    ui.small(app.tr("render.opaque_image_summary"));
+    let progressive = app.render_workspace.view.progressive && app.render_workspace.view.integrator == Integrator::Raster;
+    ui.small(app.tr(if progressive { "render.progressive_image_summary" } else { "render.opaque_image_summary" }));
     image_method_controls(app, ui);
     ui.horizontal(|ui| {
         ui.label(app.tr("render.image_width"));

@@ -31,9 +31,12 @@ fn sphere(surface: OpaqueSurface) -> ProductScene {
     sphere_grid(surface, 48, 96)
 }
 fn sphere_grid(surface: OpaqueSurface, rows: u32, columns: u32) -> ProductScene {
+    sphere_section(surface, rows, columns, rows)
+}
+fn sphere_section(surface: OpaqueSurface, rows: u32, columns: u32, rings: u32) -> ProductScene {
     // Original unit sphere, deliberately triangulated here rather than imported test data.
     let mut mesh = Mesh::default();
-    for i in 0..=rows {
+    for i in 0..=rings {
         let theta = f64::from(i) * std::f64::consts::PI / f64::from(rows);
         for j in 0..=columns {
             let phi = f64::from(j) * std::f64::consts::TAU / f64::from(columns);
@@ -42,7 +45,7 @@ fn sphere_grid(surface: OpaqueSurface, rows: u32, columns: u32) -> ProductScene 
             mesh.normals.push(n);
         }
     }
-    for i in 0..rows {
+    for i in 0..rings {
         for j in 0..columns {
             let a = i * (columns + 1) + j;
             let b = a + columns + 1;
@@ -238,6 +241,28 @@ fn gpu_furnace_fixed_seed_and_cancellation() {
 }
 
 #[test]
+fn skinny_polar_triangles_do_not_shadow_themselves() {
+    let Some(executor) = executor() else { return };
+    let mut image = request(32);
+    image.camera.distance = 16.0;
+    image.camera.fov = 0.0005;
+    let mut task = Task::new(
+        executor.context.clone(),
+        sphere_section(white(), 512, 1024, 1),
+        image,
+        JobOptions { samples: 1, max_depth: 1, ..Default::default() },
+        CancelToken::default(),
+    )
+    .unwrap();
+    task.dispatch().unwrap();
+    let pixels = task.read_linear().unwrap();
+    for (index, pixel) in pixels.iter().enumerate() {
+        assert_eq!(pixel[3], 1.0, "polar cap covers the image: {index} {pixel:?}");
+        assert!(pixel[0] > 0.1, "outward-facing cap must receive unobstructed studio light: {index} {pixel:?}");
+    }
+}
+
+#[test]
 fn native_host_cancel_never_publishes_a_frame() {
     let Some(executor) = executor() else { return };
     let host = ImageHost::with_executor(Arc::new(executor)).unwrap();
@@ -289,6 +314,11 @@ fn path_performance() {
     let coverage = linear.iter().map(|p| f64::from(p[3])).sum::<f64>() / linear.len() as f64;
     assert!((0.16..0.19).contains(&coverage), "sphere must occupy the expected projected area: {coverage}");
     let centre = linear[540 * 1920 + 960];
+    let lit = linear.iter().filter(|p| p[0] > 0.01).count();
+    eprintln!(
+        "PATH_BENCH_DIAGNOSTIC coverage={coverage:.6} centre={centre:?} lit_pixels={lit} nearby={:?}",
+        [linear[500 * 1920 + 960], linear[540 * 1920 + 1000], linear[580 * 1920 + 960]]
+    );
     assert_eq!(centre[3], 1.0);
     assert!(centre[0] > 0.01, "benchmark must actually shade the sphere: {centre:?}");
     eprintln!("PATH_BENCH_IMAGE coverage={coverage:.6} centre={centre:?}");
