@@ -390,6 +390,94 @@ fn completed_preview(h: &mut Harness, background: [u8; 3]) -> solidcraft_engine:
     panic!("small cooperative image did not complete within the work budget");
 }
 
+fn image_panel_frame(app: &mut SolveApp, ctx: &egui::Context) -> egui::FullOutput {
+    ctx.run_ui(
+        egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(285.0, 1200.0))), ..Default::default() },
+        |ui| image_controls(app, ui),
+    )
+}
+
+#[test]
+fn completed_image_is_painted_once_available_and_upload_is_cached() {
+    let mut h = Harness::new();
+    let ctx = egui::Context::default();
+    image_panel_frame(&mut h.app, &ctx);
+    assert!(h.app.render_workspace.image.is_none());
+    let doc = h.app.session.doc.clone();
+    let undo = h.app.session.undo.len();
+    let job = completed_preview(&mut h, [20, 40, 60]);
+    h.app.render_workspace.view.job = Some(job);
+    let output = image_panel_frame(&mut h.app, &ctx);
+    let (cached_job, texture) = h.app.render_workspace.image.as_ref().unwrap();
+    let texture = texture.as_ref().unwrap();
+    let id = texture.id();
+    assert_eq!(*cached_job, job);
+    assert_eq!(texture.size(), [16, 16]);
+    let uploaded = &output.textures_delta.set.get(&id).unwrap().first().unwrap().image;
+    let egui::ImageData::Color(pixels) = uploaded;
+    assert!(pixels.pixels.iter().all(|p| *p == Color32::from_rgb(20, 40, 60)));
+    assert!(
+        ctx.tessellate(output.shapes, output.pixels_per_point)
+            .iter()
+            .any(|shape| { matches!(&shape.primitive, egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id == id && !mesh.indices.is_empty()) })
+    );
+    let output = image_panel_frame(&mut h.app, &ctx);
+    assert!(!output.textures_delta.set.contains_key(&id), "repaint must reuse the texture");
+    assert!(Arc::ptr_eq(&doc, &h.app.session.doc));
+    assert_eq!(h.app.session.undo.len(), undo);
+    let path = h.dir.join("displayed.png");
+    h.app.run("render.export", json!({"job":job,"path":path})).unwrap();
+    let frame = h.app.session.render_job_handle(job).unwrap().frame().unwrap().unwrap();
+    assert_eq!(std::fs::read(path).unwrap(), frame.png(), "displaying the image must not change export bytes");
+}
+
+#[test]
+fn completed_image_keeps_last_export_during_work_and_updates_for_the_next_job() {
+    let mut h = Harness::new();
+    let ctx = egui::Context::default();
+    let first = completed_preview(&mut h, [20, 40, 60]);
+    h.app.render_workspace.view.job = Some(first);
+    image_panel_frame(&mut h.app, &ctx);
+    let old_texture = h.app.render_workspace.image.as_ref().unwrap().1.as_ref().unwrap().id();
+    let reply = h.app.run("render.start", json!({"settings":{"width":16,"height":16}})).unwrap();
+    let pending = serde_json::from_value(reply["job"].clone()).unwrap();
+    h.app.render_workspace.view.job = Some(pending);
+    image_panel_frame(&mut h.app, &ctx);
+    assert_eq!(h.app.render_workspace.image.as_ref().unwrap().0, first);
+    h.app.run("render.cancel", json!({"job":pending})).unwrap();
+    image_panel_frame(&mut h.app, &ctx);
+    assert_eq!(h.app.render_workspace.image.as_ref().unwrap().0, first);
+    let second = completed_preview(&mut h, [80, 100, 120]);
+    h.app.render_workspace.view.job = Some(second);
+    let output = image_panel_frame(&mut h.app, &ctx);
+    let (cached_job, texture) = h.app.render_workspace.image.as_ref().unwrap();
+    assert_eq!(*cached_job, second);
+    assert_ne!(texture.as_ref().unwrap().id(), old_texture);
+    assert!(output.textures_delta.free.contains(&old_texture));
+    crate::documents::open_tab(&mut h.app, Session::default()).unwrap();
+    image_panel_frame(&mut h.app, &ctx);
+    assert!(h.app.render_workspace.image.is_none(), "another document must not show this image");
+    crate::documents::switch(&mut h.app, 0);
+    image_panel_frame(&mut h.app, &ctx);
+    assert_eq!(h.app.render_workspace.image.as_ref().unwrap().0, second);
+    reset_document(&mut h.app);
+    assert!(h.app.render_workspace.image.is_none());
+}
+
+#[test]
+fn completed_image_decoder_preserves_alpha_and_rejects_invalid_sizes_and_pngs() {
+    let mut png = std::io::Cursor::new(Vec::new());
+    let pixels = image::RgbaImage::from_pixel(2, 1, image::Rgba([80, 120, 160, 128]));
+    pixels.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let decoded = decode_image(png.get_ref(), 2, 1).unwrap();
+    assert_eq!(decoded.size, [2, 1]);
+    assert_eq!(decoded.pixels, vec![Color32::from_rgba_unmultiplied(80, 120, 160, 128); 2]);
+    for (width, height) in [(0, 1), (u32::MAX, 1), (4096, 4096), (1, 1), (3, 1)] {
+        assert!(decode_image(png.get_ref(), width, height).is_err(), "{width}x{height}");
+    }
+    assert!(decode_image(b"invalid PNG", 2, 1).is_err());
+}
+
 fn async_export_fixture() -> (Harness, solidcraft_engine::render::job::JobId) {
     let mut h = Harness::new();
     h.app.run("solid.box", json!({"length":10,"width":20,"height":5})).unwrap();

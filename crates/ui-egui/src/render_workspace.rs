@@ -31,6 +31,7 @@ pub struct State {
     key: Option<u64>,
     scene_signature: Option<(u64, usize, u64)>,
     scene: Option<ProductScene>,
+    image: Option<(solidcraft_engine::render::job::JobId, Result<egui::TextureHandle, String>)>,
 }
 
 /// Small per-document editor state; GPU uploads and host capabilities stay outside tabs.
@@ -76,6 +77,7 @@ impl Default for State {
             key: None,
             scene_signature: None,
             scene: None,
+            image: None,
         }
     }
 }
@@ -375,6 +377,56 @@ fn image_controls(app: &mut SolveApp, ui: &mut egui::Ui) {
     {
         export_image(app, job, app.render_workspace.view.overwrite);
     }
+    completed_image(app, ui);
+}
+
+/// The job currently publishes a PNG only after encoding completes. Decode/upload once per
+/// completed job, not once per UI frame; keep the last exportable image during a new render.
+fn completed_image(app: &mut SolveApp, ui: &mut egui::Ui) {
+    let Some(job) = app.render_workspace.view.completed else {
+        app.render_workspace.image = None;
+        return;
+    };
+    if app.render_workspace.image.as_ref().is_none_or(|(old, _)| *old != job) {
+        let result = (|| -> Result<egui::TextureHandle, String> {
+            let handle = app.session.render_job_handle(job).map_err(|e| e.to_string())?;
+            let frame = handle.frame().map_err(|e| e.to_string())?.ok_or("render has no completed image")?;
+            let image = decode_image(frame.png(), frame.info.width, frame.info.height)?;
+            Ok(ui.ctx().load_texture("sc_render_image", image, egui::TextureOptions::LINEAR))
+        })();
+        // Cache errors too, so a bad frame cannot repeatedly allocate or decode on repaint.
+        app.render_workspace.image = Some((job, result));
+    }
+    if let Some((_, image)) = &app.render_workspace.image {
+        match image {
+            Ok(texture) => {
+                ui.add(egui::Image::new(texture).max_size(egui::vec2(ui.available_width(), 240.0)).shrink_to_fit())
+                    .on_hover_text(app.tr("render.image_completed"));
+            }
+            Err(error) => {
+                ui.label(error);
+            }
+        }
+    }
+}
+
+fn decode_image(png: &[u8], width: u32, height: u32) -> Result<egui::ColorImage, String> {
+    let size = (u64::from(width), u64::from(height));
+    let budget = RenderLimits::default();
+    if budget.fit(size.0, size.1, None) != Some(size) {
+        return Err("render image exceeds preview limits".into());
+    }
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(width);
+    limits.max_image_height = Some(height);
+    limits.max_alloc = Some(budget.max_pixels * 16);
+    reader.limits(limits);
+    let image = reader.decode().map_err(|e| e.to_string())?.to_rgba8();
+    if image.dimensions() != (width, height) {
+        return Err("render image dimensions do not match its job".into());
+    }
+    Ok(egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], image.as_raw()))
 }
 
 /// Keep the selected image and overwrite consent fixed while the upstream picker holds model input.
