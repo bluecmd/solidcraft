@@ -1,0 +1,34 @@
+{
+  "frame": 44,
+  "renderer": "9a7b53498269866567ae2cb2b126609fd04f4c8e",
+  "dimensions": [
+    1920,
+    1080
+  ],
+  "samples": 512,
+  "backend": "Vulkan",
+  "adapters": [
+    "NVIDIA GB10",
+    "NVIDIA GeForce RTX 4090"
+  ],
+  "png_sha256": [
+    "e42e36f39527fc0102f1d9839b1b7a6331945b6ac5ff1e8a1b35ae506dcb995f",
+    "972a61b432fda0c60f91a7f5d4281ced86b045bc21d0ba853c6bec12295169f3"
+  ],
+  "display_byte_mean_absolute_RGB": [
+    0.00015046296296296297,
+    0.00015866126543209876,
+    0.00015239197530864197
+  ],
+  "display_byte_rms_RGB": [
+    0.012383718402865977,
+    0.01267242193812129,
+    0.0125
+  ],
+  "maximum_absolute_RGB": [
+    2,
+    2,
+    3
+  ],
+  "metric": "Decoded 8-bit RGB PNGs at identical frame and render settings; no alignment or normalization"
+}
