@@ -1,0 +1,713 @@
+{
+  "study": "Coffee explosion",
+  "steps": 89,
+  "grounded": "root (0)",
+  "joints": "independent as-built sliders from grounded root; no loops or links",
+  "initial_pose": "assembled",
+  "saved_pose": 0,
+  "parts": [
+    {
+      "body": "Bent chrome lever",
+      "occurrence": "Motion Bent chrome lever:1",
+      "joint": "Explode Bent chrome lever",
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "travel_mm": 42.0,
+      "delta_mm": [
+        0,
+        0,
+        42
+      ],
+      "assembled_offset_mm": [
+        0,
+        0,
+        -2
+      ],
+      "exploded_offset_mm": [
+        0,
+        0,
+        40
+      ]
+    },
+    {
+      "body": "Black S power cable",
+      "occurrence": "Motion Black S power cable:1",
+      "joint": "Explode Black S power cable",
+      "axis": [
+        0.8658650732445505,
+        -0.5002775978746292,
+        0.0
+      ],
+      "travel_mm": 103.94229168149026,
+      "delta_mm": [
+        90,
+        -52,
+        0
+      ],
+      "assembled_offset_mm": [
+        -40,
+        60,
+        0
+      ],
+      "exploded_offset_mm": [
+        50,
+        8,
+        0
+      ]
+    },
+    {
+      "body": "Brewing collar",
+      "occurrence": "Motion Brewing collar:1",
+      "joint": "Explode Brewing collar",
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "travel_mm": 28.0,
+      "delta_mm": [
+        0,
+        0,
+        28
+      ],
+      "assembled_offset_mm": [
+        0,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        0,
+        0,
+        28
+      ]
+    },
+    {
+      "body": "Brewing head roof",
+      "occurrence": "Motion Brewing head roof:1",
+      "joint": "Explode Brewing head roof",
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "travel_mm": 42.0,
+      "delta_mm": [
+        0,
+        0,
+        42
+      ],
+      "assembled_offset_mm": [
+        0,
+        0,
+        -2
+      ],
+      "exploded_offset_mm": [
+        0,
+        0,
+        40
+      ]
+    },
+    {
+      "body": "Clear ribbed bin",
+      "occurrence": "Motion Clear ribbed bin:1",
+      "joint": "Explode Clear ribbed bin",
+      "axis": [
+        -0.9916004111862218,
+        -0.12933918406776806,
+        0.0
+      ],
+      "travel_mm": 115.97413504743201,
+      "delta_mm": [
+        -115,
+        -15,
+        0
+      ],
+      "assembled_offset_mm": [
+        45,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        -70,
+        -15,
+        0
+      ]
+    },
+    {
+      "body": "Drip tray",
+      "occurrence": "Motion Drip tray:1",
+      "joint": "Explode Drip tray",
+      "axis": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "travel_mm": 114.0,
+      "delta_mm": [
+        0,
+        -114,
+        0
+      ],
+      "assembled_offset_mm": [
+        0,
+        80,
+        0
+      ],
+      "exploded_offset_mm": [
+        0,
+        -34,
+        0
+      ]
+    },
+    {
+      "body": "Left lever ball",
+      "occurrence": "Motion Left lever ball:1",
+      "joint": "Explode Left lever ball",
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "travel_mm": 42.0,
+      "delta_mm": [
+        0,
+        0,
+        42
+      ],
+      "assembled_offset_mm": [
+        0,
+        0,
+        -2
+      ],
+      "exploded_offset_mm": [
+        0,
+        0,
+        40
+      ]
+    },
+    {
+      "body": "Louvred service panel",
+      "occurrence": "Motion Louvred service panel:1",
+      "joint": "Explode Louvred service panel",
+      "axis": [
+        -0.9336564190594521,
+        0.35816991938056564,
+        0.0
+      ],
+      "travel_mm": 248.4854120466632,
+      "delta_mm": [
+        -232,
+        89,
+        0
+      ],
+      "assembled_offset_mm": [
+        122,
+        -74,
+        0
+      ],
+      "exploded_offset_mm": [
+        -110,
+        15,
+        0
+      ]
+    },
+    {
+      "body": "Open brewing head",
+      "occurrence": "Motion Open brewing head:1",
+      "joint": "Explode Open brewing head",
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "travel_mm": 28.0,
+      "delta_mm": [
+        0,
+        0,
+        28
+      ],
+      "assembled_offset_mm": [
+        0,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        0,
+        0,
+        28
+      ]
+    },
+    {
+      "body": "Perforated stainless grate",
+      "occurrence": "Motion Perforated stainless grate:1",
+      "joint": "Explode Perforated stainless grate",
+      "axis": [
+        0.0,
+        -0.9730802874900094,
+        0.23046638387921276
+      ],
+      "travel_mm": 117.15374513859982,
+      "delta_mm": [
+        0,
+        -114,
+        27
+      ],
+      "assembled_offset_mm": [
+        0,
+        80,
+        -27
+      ],
+      "exploded_offset_mm": [
+        0,
+        -34,
+        0
+      ]
+    },
+    {
+      "body": "Plug pin 206",
+      "occurrence": "Motion Plug pin 206:1",
+      "joint": "Explode Plug pin 206",
+      "axis": [
+        0.871152209203766,
+        -0.4910130633693954,
+        0.0
+      ],
+      "travel_mm": 126.26955294131677,
+      "delta_mm": [
+        110,
+        -62,
+        0
+      ],
+      "assembled_offset_mm": [
+        -60,
+        70,
+        0
+      ],
+      "exploded_offset_mm": [
+        50,
+        8,
+        0
+      ]
+    },
+    {
+      "body": "Plug pin 218",
+      "occurrence": "Motion Plug pin 218:1",
+      "joint": "Explode Plug pin 218",
+      "axis": [
+        0.871152209203766,
+        -0.4910130633693954,
+        0.0
+      ],
+      "travel_mm": 126.26955294131677,
+      "delta_mm": [
+        110,
+        -62,
+        0
+      ],
+      "assembled_offset_mm": [
+        -60,
+        70,
+        0
+      ],
+      "exploded_offset_mm": [
+        50,
+        8,
+        0
+      ]
+    },
+    {
+      "body": "Right lever ball",
+      "occurrence": "Motion Right lever ball:1",
+      "joint": "Explode Right lever ball",
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "travel_mm": 42.0,
+      "delta_mm": [
+        0,
+        0,
+        42
+      ],
+      "assembled_offset_mm": [
+        0,
+        0,
+        -2
+      ],
+      "exploded_offset_mm": [
+        0,
+        0,
+        40
+      ]
+    },
+    {
+      "body": "Rounded tray cap",
+      "occurrence": "Motion Rounded tray cap:1",
+      "joint": "Explode Rounded tray cap",
+      "axis": [
+        0.6518863031329846,
+        -0.7583167199710229,
+        0.0
+      ],
+      "travel_mm": 150.33296378372907,
+      "delta_mm": [
+        98,
+        -114,
+        0
+      ],
+      "assembled_offset_mm": [
+        -60,
+        80,
+        0
+      ],
+      "exploded_offset_mm": [
+        38,
+        -34,
+        0
+      ]
+    },
+    {
+      "body": "Separate tank lid",
+      "occurrence": "Motion Separate tank lid:1",
+      "joint": "Explode Separate tank lid",
+      "axis": [
+        0.9629776403746249,
+        0.039506774989728204,
+        0.26667073118066537
+      ],
+      "travel_mm": 202.4969135567256,
+      "delta_mm": [
+        195,
+        8,
+        54
+      ],
+      "assembled_offset_mm": [
+        -95,
+        0,
+        -32
+      ],
+      "exploded_offset_mm": [
+        100,
+        8,
+        22
+      ]
+    },
+    {
+      "body": "Shower screen",
+      "occurrence": "Motion Shower screen:1",
+      "joint": "Explode Shower screen",
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "travel_mm": 28.0,
+      "delta_mm": [
+        0,
+        0,
+        28
+      ],
+      "assembled_offset_mm": [
+        0,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        0,
+        0,
+        28
+      ]
+    },
+    {
+      "body": "Smoky D tank",
+      "occurrence": "Motion Smoky D tank:1",
+      "joint": "Explode Smoky D tank",
+      "axis": [
+        0.9991595092150928,
+        0.04099115935241406,
+        0.0
+      ],
+      "travel_mm": 195.1640335717624,
+      "delta_mm": [
+        195,
+        8,
+        0
+      ],
+      "assembled_offset_mm": [
+        -95,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        100,
+        8,
+        0
+      ]
+    },
+    {
+      "body": "Tank lid grip",
+      "occurrence": "Motion Tank lid grip:1",
+      "joint": "Explode Tank lid grip",
+      "axis": [
+        0.9629776403746249,
+        0.039506774989728204,
+        0.26667073118066537
+      ],
+      "travel_mm": 202.4969135567256,
+      "delta_mm": [
+        195,
+        8,
+        54
+      ],
+      "assembled_offset_mm": [
+        -95,
+        0,
+        -32
+      ],
+      "exploded_offset_mm": [
+        100,
+        8,
+        22
+      ]
+    },
+    {
+      "body": "Two pin plug",
+      "occurrence": "Motion Two pin plug:1",
+      "joint": "Explode Two pin plug",
+      "axis": [
+        0.871152209203766,
+        -0.4910130633693954,
+        0.0
+      ],
+      "travel_mm": 126.26955294131677,
+      "delta_mm": [
+        110,
+        -62,
+        0
+      ],
+      "assembled_offset_mm": [
+        -60,
+        70,
+        0
+      ],
+      "exploded_offset_mm": [
+        50,
+        8,
+        0
+      ]
+    },
+    {
+      "body": "Zinc screw 1",
+      "occurrence": "Motion Zinc screw 1:1",
+      "joint": "Explode Zinc screw 1",
+      "axis": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "travel_mm": 58.0,
+      "delta_mm": [
+        -58,
+        0,
+        0
+      ],
+      "assembled_offset_mm": [
+        30,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        -28,
+        0,
+        0
+      ]
+    },
+    {
+      "body": "Zinc screw 2",
+      "occurrence": "Motion Zinc screw 2:1",
+      "joint": "Explode Zinc screw 2",
+      "axis": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "travel_mm": 58.0,
+      "delta_mm": [
+        -58,
+        0,
+        0
+      ],
+      "assembled_offset_mm": [
+        30,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        -28,
+        0,
+        0
+      ]
+    },
+    {
+      "body": "Zinc screw 3",
+      "occurrence": "Motion Zinc screw 3:1",
+      "joint": "Explode Zinc screw 3",
+      "axis": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "travel_mm": 58.0,
+      "delta_mm": [
+        -58,
+        0,
+        0
+      ],
+      "assembled_offset_mm": [
+        30,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        -28,
+        0,
+        0
+      ]
+    },
+    {
+      "body": "Zinc screw 4",
+      "occurrence": "Motion Zinc screw 4:1",
+      "joint": "Explode Zinc screw 4",
+      "axis": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "travel_mm": 58.0,
+      "delta_mm": [
+        -58,
+        0,
+        0
+      ],
+      "assembled_offset_mm": [
+        30,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        -28,
+        0,
+        0
+      ]
+    },
+    {
+      "body": "Zinc screw 5",
+      "occurrence": "Motion Zinc screw 5:1",
+      "joint": "Explode Zinc screw 5",
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "travel_mm": 58.0,
+      "delta_mm": [
+        58,
+        0,
+        0
+      ],
+      "assembled_offset_mm": [
+        -30,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        28,
+        0,
+        0
+      ]
+    },
+    {
+      "body": "Zinc screw 6",
+      "occurrence": "Motion Zinc screw 6:1",
+      "joint": "Explode Zinc screw 6",
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "travel_mm": 58.0,
+      "delta_mm": [
+        58,
+        0,
+        0
+      ],
+      "assembled_offset_mm": [
+        -30,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        28,
+        0,
+        0
+      ]
+    },
+    {
+      "body": "Zinc screw 7",
+      "occurrence": "Motion Zinc screw 7:1",
+      "joint": "Explode Zinc screw 7",
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "travel_mm": 58.0,
+      "delta_mm": [
+        58,
+        0,
+        0
+      ],
+      "assembled_offset_mm": [
+        -30,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        28,
+        0,
+        0
+      ]
+    },
+    {
+      "body": "Zinc screw 8",
+      "occurrence": "Motion Zinc screw 8:1",
+      "joint": "Explode Zinc screw 8",
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "travel_mm": 58.0,
+      "delta_mm": [
+        58,
+        0,
+        0
+      ],
+      "assembled_offset_mm": [
+        -30,
+        0,
+        0
+      ],
+      "exploded_offset_mm": [
+        28,
+        0,
+        0
+      ]
+    }
+  ],
+  "expected_occurrence_translation": "fraction(step) * delta_mm; orientation remains identity"
+}
