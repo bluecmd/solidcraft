@@ -519,6 +519,11 @@ impl SolveApp {
                 None
             }
         };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let adapter = rs.adapter.clone();
+            self.render_workspace.path_host.start(move || solidcraft_gpu::path::host_on_adapter(&adapter).map_err(|e| e.to_string()));
+        }
         render_workspace::sync_backend(self);
         self.msaa_supported = rs.msaa_supported.clone();
         let info = rs.adapter.get_info();

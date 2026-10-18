@@ -71,8 +71,33 @@ pub fn admit(scene: &ProductScene, request: &ImageRequest) -> Result<Admission> 
     }
 }
 
-/// Shared dimension/source admission; integrators add their own complete work budgets.
+/// Shared dimension/source admission plus the CPU raster work estimate and its 384 MiB job
+/// check; CPU integrators add their own complete work budgets on top.
 pub(crate) fn admit_base(scene: &ProductScene, request: &ImageRequest) -> Result<Admission> {
+    admit_raster(admit_source(scene, request, MAX_TRIANGLES)?)
+}
+
+/// Common camera, dimension and source admission for registered raster-request executors,
+/// without any CPU raster estimate: the returned admission counts retained source geometry
+/// only (`pixel_scratch_bytes` and `preparation_bytes` are zero). Executors budget their own
+/// preparation and pixel storage, apply their own job limit, and validate triangle contents
+/// before uploading anything to a device. Raytrace requests run only on the CPU host.
+pub fn admit_geometry(scene: &ProductScene, request: &ImageRequest, max_triangles: u64) -> Result<Admission> {
+    if request.integrator != super::Integrator::Raster || request.raytrace.is_some() {
+        return Err(JobError::new(ErrorCode::InvalidRequest, "integrator: raytrace and its options require the CPU image host"));
+    }
+    Ok(admit_source(scene, request, max_triangles)?.admission)
+}
+
+/// A validated source with its geometry accounting, and the builtin raster scratch estimate
+/// for the requested dimensions (used only by the CPU estimate).
+struct Source {
+    admission: Admission,
+    bodies: u64,
+    raster_scratch_bytes: u64,
+}
+
+fn admit_source(scene: &ProductScene, request: &ImageRequest, max_triangles: u64) -> Result<Source> {
     if !request.camera.is_valid() {
         return Err(JobError::new(ErrorCode::InvalidRequest, "invalid image camera"));
     }
@@ -100,8 +125,8 @@ pub(crate) fn admit_base(scene: &ProductScene, request: &ImageRequest) -> Result
         triangles = triangles.checked_add(m.triangles.len() as u64).ok_or_else(|| limit("triangle count overflow"))?;
         faces = faces.checked_add(body.faces.len() as u64).ok_or_else(|| limit("appearance count overflow"))?;
         polylines = polylines.checked_add(m.edges.len() as u64 + m.edge_faces.len() as u64).ok_or_else(|| limit("edge count overflow"))?;
-        if triangles > MAX_TRIANGLES || faces > MAX_TRIANGLES || polylines > MAX_TRIANGLES {
-            return Err(limit("product image exceeds the 262144 triangle/appearance/polyline admission cap"));
+        if triangles > max_triangles || faces > max_triangles || polylines > max_triangles {
+            return Err(limit(&format!("product image exceeds the {max_triangles} triangle/appearance/polyline admission cap")));
         }
         add_bytes(&mut geometry, m.positions.capacity(), std::mem::size_of::<Vec3>())?;
         add_bytes(&mut geometry, m.normals.capacity(), std::mem::size_of::<Vec3>())?;
@@ -127,29 +152,44 @@ pub(crate) fn admit_base(scene: &ProductScene, request: &ImageRequest) -> Result
             return Err(invalid("invalid body opacity"));
         }
     }
+    let encoded_limit = u64::from(request.width) * u64::from(request.height) * 8 + 65_536;
+    Ok(Source {
+        admission: Admission {
+            triangles,
+            face_appearances: faces,
+            geometry_bytes: geometry,
+            pixel_scratch_bytes: 0,
+            preparation_bytes: 0,
+            estimated_total_bytes: geometry,
+            encoded_limit,
+        },
+        bodies: scene.meshes.len() as u64,
+        raster_scratch_bytes: resolved.estimated_scratch_bytes,
+    })
+}
+
+/// The CPU raster scratch/preparation estimate and its 384 MiB per-job check.
+fn admit_raster(source: Source) -> Result<Admission> {
+    let mut a = source.admission;
     // Three bounded 16-byte lists, a conservative map-node allowance, and codec overhead.
-    let preparation = triangles
+    let preparation = a
+        .triangles
         .checked_mul(48)
-        .and_then(|n| faces.checked_mul(160).and_then(|f| n.checked_add(f)))
-        .and_then(|n| n.checked_add(scene.meshes.len() as u64 * 128 + 262_144))
+        .and_then(|n| a.face_appearances.checked_mul(160).and_then(|f| n.checked_add(f)))
+        .and_then(|n| n.checked_add(source.bodies * 128 + 262_144))
         .ok_or_else(|| limit("work list size overflow"))?;
-    let total = geometry
+    let total = a
+        .geometry_bytes
         .checked_add(preparation)
-        .and_then(|n| n.checked_add(resolved.estimated_scratch_bytes))
+        .and_then(|n| n.checked_add(source.raster_scratch_bytes))
         .ok_or_else(|| limit("image memory overflow"))?;
     if total > MAX_JOB_BYTES {
         return Err(limit("product job exceeds its 384 MiB admission estimate"));
     }
-    let encoded_limit = u64::from(request.width) * u64::from(request.height) * 8 + 65_536;
-    Ok(Admission {
-        triangles,
-        face_appearances: faces,
-        geometry_bytes: geometry,
-        pixel_scratch_bytes: resolved.estimated_scratch_bytes,
-        preparation_bytes: preparation,
-        estimated_total_bytes: total,
-        encoded_limit,
-    })
+    a.pixel_scratch_bytes = source.raster_scratch_bytes;
+    a.preparation_bytes = preparation;
+    a.estimated_total_bytes = total;
+    Ok(a)
 }
 
 fn reserve<T>(count: usize) -> Result<Vec<T>> {

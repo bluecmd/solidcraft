@@ -1,4 +1,4 @@
-//! Caller-owned CPU execution host. One worker, two bounded queued inputs; browser pumping
+//! Caller-owned image execution host. One worker, two bounded queued inputs; browser pumping
 //! uses the same incremental task without threads. Shared ownership never includes CAD state.
 
 use std::collections::VecDeque;
@@ -13,8 +13,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::{
-    Admission, AlphaConvention, CancelToken, ColourEncoding, ErrorCode, FrameInfo, ImageRequest, ImageTask, Integrator, JobError, JobId, Phase,
-    Progress, Result, TaskPoll, admit,
+    Admission, AlphaConvention, CancelToken, ColourEncoding, ErrorCode, FrameInfo, ImageExecutor, ImageRequest, ImageTask, ImageWork, Integrator,
+    JobError, JobId, JobOptions, Phase, Progress, Result, TaskPoll, admit,
 };
 use crate::{
     Availability, ExecutorDescriptor, ExecutorId, ProductScene, RenderFormat, RenderLimits, RenderMode, RenderOperation, RenderProfile, ScratchLayout,
@@ -22,7 +22,14 @@ use crate::{
 
 const MEMORY_LIMIT: u64 = 512 * 1024 * 1024;
 const QUEUE_LIMIT: usize = 2;
+/// Every host owns its own 512 MiB pool. CPU product jobs are capped at the CPU
+/// integrators' 384 MiB per job; a registered executor's job may use its whole pool.
+const CPU_JOB_LIMIT: u64 = super::image::MAX_JOB_BYTES;
+const REGISTERED_JOB_LIMIT: u64 = MEMORY_LIMIT;
 
+#[cfg(test)]
+#[path = "host_registered_tests.rs"]
+mod registered_tests;
 #[cfg(test)]
 #[path = "host_tests.rs"]
 mod tests;
@@ -49,7 +56,7 @@ impl Budget {
             let next = used
                 .checked_add(bytes)
                 .filter(|n| *n <= MEMORY_LIMIT)
-                .ok_or_else(|| JobError::new(ErrorCode::LimitExceeded, "CPU image host's 512 MiB admission pool is full"))?;
+                .ok_or_else(|| JobError::new(ErrorCode::LimitExceeded, "image host's 512 MiB admission pool is full"))?;
             match self.used.compare_exchange_weak(used, next, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => break,
                 Err(current) => used = current,
@@ -210,6 +217,9 @@ pub struct JobStatus {
     pub scene_generation: u64,
     pub request: ImageRequest,
     pub resolved: crate::ResolvedRequest,
+    /// Sampling options of a registered executor's job; CPU product jobs take none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<JobOptions>,
     pub progress: Progress,
     pub error: Option<JobError>,
     pub frame: Option<FrameInfo>,
@@ -228,6 +238,7 @@ struct Record {
     request: ImageRequest,
     resolved: crate::ResolvedRequest,
     cancel: CancelToken,
+    options: Option<JobOptions>,
     data: Mutex<Data>,
     #[cfg(not(target_arch = "wasm32"))]
     done: Condvar,
@@ -255,6 +266,7 @@ impl JobHandle {
             scene_generation: self.0.scene_generation,
             request: self.0.request.clone(),
             resolved: self.0.resolved.clone(),
+            options: self.0.options,
             progress: data.progress,
             error: data.error.clone(),
             frame: data.frame.as_ref().map(|f| f.info.clone()),
@@ -298,6 +310,8 @@ impl JobHandle {
 }
 
 struct Work {
+    /// `None` runs the built-in CPU integrators; otherwise the host's registered executor.
+    executor: Option<Arc<dyn ImageExecutor>>,
     environment: Option<crate::lighting::environment_input::EnvironmentInput>,
     scene: ProductScene,
     handle: JobHandle,
@@ -377,6 +391,8 @@ enum WorkTask {
     Raster(TaskSlot<ImageTask>),
     #[cfg(feature = "raytrace-cpu")]
     Raytrace(TaskSlot<crate::raytrace::image::ImageTask>),
+    /// Work of a registered executor, which bounds its own scratch during admission.
+    External(TaskSlot<Box<dyn ImageWork>>),
 }
 
 impl WorkTask {
@@ -410,6 +426,7 @@ impl WorkTask {
             Self::Raster(task) => task.get_mut()?.step(units),
             #[cfg(feature = "raytrace-cpu")]
             Self::Raytrace(task) => task.get_mut()?.step(units),
+            Self::External(task) => task.get_mut()?.step(units),
         }
     }
 }
@@ -442,11 +459,20 @@ impl Running {
         {
             data.progress.phase = Phase::Preparing;
         }
-        let task = WorkTask::new(work.scene, work.handle.0.request.clone(), work.handle.0.cancel.clone(), work.environment);
+        let Work { executor, environment, scene, handle, reservation } = work;
+        let task = match executor {
+            Some(executor) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                executor.begin(scene, handle.0.request.clone(), handle.0.options.unwrap_or_default(), handle.0.cancel.clone())
+            }))
+            .unwrap_or_else(|_| Err(JobError::new(ErrorCode::Internal, "image executor failed while preparing the job")))
+            .and_then(TaskSlot::new)
+            .map(WorkTask::External),
+            None => WorkTask::new(scene, handle.0.request.clone(), handle.0.cancel.clone(), environment),
+        };
         match task {
-            Ok(task) => Some(Self { task: Some(task), pending_png: None, handle: work.handle, reservation: Some(work.reservation) }),
+            Ok(task) => Some(Self { task: Some(task), pending_png: None, handle, reservation: Some(reservation) }),
             Err(e) => {
-                terminal(&work.handle, e);
+                terminal(&handle, e);
                 None
             }
         }
@@ -535,7 +561,7 @@ impl Running {
                 false
             }
             Err(_) => {
-                terminal(&self.handle, JobError::new(ErrorCode::Internal, "CPU image host encountered an internal error"));
+                terminal(&self.handle, JobError::new(ErrorCode::Internal, "image host encountered an internal error"));
                 false
             }
         }
@@ -552,6 +578,8 @@ struct Shared {
 }
 
 struct Owner {
+    /// `None` is the built-in CPU product host with its raster and raytrace integrators.
+    executor: Option<Arc<dyn ImageExecutor>>,
     shared: Arc<Shared>,
     kind: HostKind,
     running: Mutex<Option<Running>>,
@@ -586,9 +614,12 @@ impl Drop for Owner {
 }
 
 #[derive(Clone)]
-pub struct CpuHost(Arc<Owner>);
+pub struct ImageHost(Arc<Owner>);
 
-impl CpuHost {
+/// Backwards-compatible CPU host constructors. Additional executors use `ImageHost::with_executor`.
+pub type CpuHost = ImageHost;
+
+impl ImageHost {
     fn shared() -> Arc<Shared> {
         Arc::new(Shared {
             queue: Mutex::new(VecDeque::new()),
@@ -601,7 +632,18 @@ impl CpuHost {
     }
 
     pub fn cooperative() -> Self {
+        Self::cooperative_owner(None)
+    }
+
+    /// A cooperative host over `executor` (pumped by its caller).
+    #[cfg(test)]
+    fn cooperative_with(executor: Arc<dyn ImageExecutor>) -> Self {
+        Self::cooperative_owner(Some(executor))
+    }
+
+    fn cooperative_owner(executor: Option<Arc<dyn ImageExecutor>>) -> Self {
         Self(Arc::new(Owner {
+            executor,
             shared: Self::shared(),
             kind: HostKind::Cooperative,
             running: Mutex::new(None),
@@ -617,14 +659,39 @@ impl CpuHost {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let shared = Self::shared();
-            let worker_shared = shared.clone();
-            let worker = std::thread::Builder::new()
-                .name("solidcraft-render".into())
-                .spawn(move || native_worker(worker_shared))
-                .map_err(|e| JobError::new(ErrorCode::HostUnavailable, format!("could not start CPU image worker: {e}")))?;
-            Ok(Self(Arc::new(Owner { shared, kind: HostKind::NativeWorker, running: Mutex::new(None), _worker: Some(worker) })))
+            Self::native(None)
         }
+    }
+
+    /// Start an isolated bounded native worker. GPU discovery occurs before registration.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_executor(executor: Arc<dyn ImageExecutor>) -> Result<Self> {
+        Self::check_executor(executor.as_ref())?;
+        Self::native(Some(executor))
+    }
+
+    fn check_executor(executor: &dyn ImageExecutor) -> Result<()> {
+        let descriptor = executor.descriptor()?;
+        if descriptor.profiles.len() != 1
+            || descriptor
+                .profiles
+                .iter()
+                .any(|p| p.mode != RenderMode::Preview || p.operation != RenderOperation::Image || p.formats != [RenderFormat::Png])
+        {
+            return Err(JobError::new(ErrorCode::InvalidRequest, "image worker currently accepts one Preview/Image/PNG profile"));
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn native(executor: Option<Arc<dyn ImageExecutor>>) -> Result<Self> {
+        let shared = Self::shared();
+        let worker_shared = shared.clone();
+        let worker = std::thread::Builder::new()
+            .name("solidcraft-render".into())
+            .spawn(move || native_worker(worker_shared))
+            .map_err(|e| JobError::new(ErrorCode::HostUnavailable, format!("could not start image worker: {e}")))?;
+        Ok(Self(Arc::new(Owner { executor, shared, kind: HostKind::NativeWorker, running: Mutex::new(None), _worker: Some(worker) })))
     }
 
     pub fn kind(&self) -> HostKind {
@@ -641,12 +708,31 @@ impl CpuHost {
         self.0.shared.budget.used.load(Ordering::Acquire)
     }
 
+    /// This host's own admission pool, shared by its queued, running and retained jobs.
+    pub fn pool_limit_bytes(&self) -> u64 {
+        MEMORY_LIMIT
+    }
+
+    /// Per-job admission cap, including retained request metadata, within this host's pool.
+    pub fn job_limit_bytes(&self) -> u64 {
+        if self.0.executor.is_none() { CPU_JOB_LIMIT } else { REGISTERED_JOB_LIMIT }
+    }
+
     pub fn descriptor(&self) -> Result<ExecutorDescriptor> {
         self.descriptor_for(Integrator::Raster)
     }
 
     /// Check the execution choice without capturing geometry or reserving memory.
     pub fn validate_integrator(&self, integrator: Integrator) -> Result<()> {
+        if self.0.executor.is_some() {
+            if !self.is_available() {
+                return Err(JobError::new(ErrorCode::HostUnavailable, "image host has stopped"));
+            }
+            if integrator != Integrator::Raster {
+                return Err(JobError::new(ErrorCode::HostUnavailable, "integrator: raytrace requires the CPU image host"));
+            }
+            return Ok(());
+        }
         if !self.is_available() {
             return Err(JobError::new(ErrorCode::HostUnavailable, "CPU image host has stopped"));
         }
@@ -662,6 +748,16 @@ impl CpuHost {
     /// Select exactly one executor for this request. Never rely on registry order
     /// to choose between raster and raytracing implementations.
     pub fn descriptor_for(&self, integrator: Integrator) -> Result<ExecutorDescriptor> {
+        if let Some(executor) = &self.0.executor {
+            if integrator != Integrator::Raster {
+                return Err(JobError::new(ErrorCode::HostUnavailable, "integrator: raytrace requires the CPU image host"));
+            }
+            let mut descriptor = executor.descriptor()?;
+            if !self.is_available() {
+                descriptor.availability = Availability::Unavailable { reason: "image host has stopped".into() };
+            }
+            return Ok(descriptor);
+        }
         if integrator == Integrator::Raytrace && !cfg!(feature = "raytrace-cpu") {
             return Err(JobError::new(ErrorCode::HostUnavailable, "CPU raytracing is not compiled in; enable raytrace-cpu"));
         }
@@ -693,8 +789,40 @@ impl CpuHost {
         })
     }
 
+    /// Admission without reserving memory. The CPU product host takes no sampling options;
+    /// a registered executor admits only raster requests, never CPU raytrace options.
+    pub fn admit(&self, scene: &ProductScene, request: &ImageRequest, options: JobOptions) -> Result<Admission> {
+        options.validate()?;
+        match &self.0.executor {
+            Some(executor) => {
+                if request.integrator != Integrator::Raster || request.raytrace.is_some() {
+                    return Err(JobError::new(ErrorCode::InvalidRequest, "integrator: raytrace and its options require the CPU image host"));
+                }
+                executor.admit(scene, request, options)
+            }
+            None => {
+                if options != JobOptions::default() {
+                    return Err(JobError::new(ErrorCode::InvalidRequest, "CPU product does not support sampling or exposure controls"));
+                }
+                admit(scene, request)
+            }
+        }
+    }
+
     pub fn submit(&self, id: JobId, scene_generation: u64, scene: ProductScene, request: ImageRequest) -> Result<JobHandle> {
-        self.submit_with_environment(id, scene_generation, scene, request, None)
+        self.submit_job(id, scene_generation, scene, request, None, None)
+    }
+
+    /// Submit with a registered executor's sampling options.
+    pub fn submit_with_options(
+        &self,
+        id: JobId,
+        scene_generation: u64,
+        scene: ProductScene,
+        request: ImageRequest,
+        options: JobOptions,
+    ) -> Result<JobHandle> {
+        self.submit_job(id, scene_generation, scene, request, None, Some(options))
     }
 
     /// Captured HDR ownership stays in work, never serialized/cloned into status.
@@ -705,6 +833,20 @@ impl CpuHost {
         scene: ProductScene,
         request: ImageRequest,
         environment: Option<crate::lighting::environment_input::EnvironmentInput>,
+    ) -> Result<JobHandle> {
+        self.submit_job(id, scene_generation, scene, request, environment, None)
+    }
+
+    /// Common submission: one captured scene, one admission lease plus retained request
+    /// metadata, typed identity and bounded queueing for every executor of this host.
+    pub fn submit_job(
+        &self,
+        id: JobId,
+        scene_generation: u64,
+        scene: ProductScene,
+        request: ImageRequest,
+        environment: Option<crate::lighting::environment_input::EnvironmentInput>,
+        options: Option<JobOptions>,
     ) -> Result<JobHandle> {
         if environment.is_some() && request.integrator != Integrator::Raytrace {
             return Err(JobError::new(ErrorCode::InvalidRequest, "environment lighting requires CPU raytrace"));
@@ -726,13 +868,21 @@ impl CpuHost {
         if environment.is_some() {
             features.push(crate::RenderFeature::Hdri);
         }
-        let Admission { estimated_total_bytes, .. } = admit(&scene, &request)?;
+        let Admission { estimated_total_bytes, .. } = self.admit(&scene, &request, options.unwrap_or_default())?;
+        // CPU jobs keep their 384 MiB per-job check including retained request metadata;
+        // registered executors' jobs are capped explicitly at their own pool.
+        let cpu = self.0.executor.is_none();
+        if !cpu && estimated_total_bytes.checked_add(request_bytes).is_none_or(|sum| sum > REGISTERED_JOB_LIMIT) {
+            return Err(JobError::new(ErrorCode::LimitExceeded, "registered image executor job exceeds its 512 MiB per-job admission"));
+        }
         let environment_bytes =
             environment.as_ref().map_or(Ok(0), |e| e.required_bytes()).map_err(|e| JobError::new(ErrorCode::InvalidRequest, e.to_string()))?;
         let estimated_total_bytes = estimated_total_bytes
             .checked_add(environment_bytes)
             .ok_or_else(|| JobError::new(ErrorCode::LimitExceeded, "environment admission overflow"))?;
-        admit_request_sum(estimated_total_bytes, request_bytes)?;
+        if cpu {
+            admit_request_sum(estimated_total_bytes, request_bytes)?;
+        }
         let mut backend = crate::builtin_backend();
         let descriptor = self.descriptor_for(request.integrator)?;
         let expected_executor = descriptor.id.clone();
@@ -752,17 +902,22 @@ impl CpuHost {
         )
         .map_err(|e| JobError::new(ErrorCode::HostUnavailable, e.to_string()))?;
         if resolved.executor != expected_executor {
-            return Err(JobError::new(ErrorCode::HostUnavailable, "CPU product executor is unavailable"));
+            return Err(JobError::new(
+                ErrorCode::HostUnavailable,
+                if cpu { "CPU product executor is unavailable" } else { "image executor is unavailable" },
+            ));
         }
         let mut queue = self.0.shared.queue.lock().map_err(|_| JobError::new(ErrorCode::HostUnavailable, "render queue lock poisoned"))?;
         if self.0.shared.stop.load(Ordering::Acquire) {
-            return Err(JobError::new(ErrorCode::HostUnavailable, "CPU image host has stopped"));
+            return Err(JobError::new(ErrorCode::HostUnavailable, "image host has stopped"));
         }
         queue.retain(|work| !work.handle.0.cancel.is_cancelled());
         if queue.len() >= QUEUE_LIMIT {
-            return Err(JobError::new(ErrorCode::QueueFull, "CPU image queue is full"));
+            return Err(JobError::new(ErrorCode::QueueFull, "image queue is full"));
         }
-        admit_request_sum(estimated_total_bytes, request_bytes)?;
+        if cpu {
+            admit_request_sum(estimated_total_bytes, request_bytes)?;
+        }
         let reservation = self.0.shared.budget.reserve(estimated_total_bytes)?;
         let request_reservation = if request_bytes == 0 { None } else { Some(self.0.shared.budget.reserve(request_bytes)?) };
         let handle = JobHandle(Arc::new(Record {
@@ -773,11 +928,12 @@ impl CpuHost {
             request,
             resolved,
             cancel: CancelToken::default(),
+            options,
             data: Mutex::new(Data { progress: Progress { phase: Phase::Queued, done: 0, total: 1 }, error: None, frame: None }),
             #[cfg(not(target_arch = "wasm32"))]
             done: Condvar::new(),
         }));
-        queue.push_back(Work { scene, handle: handle.clone(), reservation, environment });
+        queue.push_back(Work { executor: self.0.executor.clone(), scene, handle: handle.clone(), reservation, environment });
         drop(queue);
         #[cfg(not(target_arch = "wasm32"))]
         self.0.shared.wake.notify_one();

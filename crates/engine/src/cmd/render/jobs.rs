@@ -19,6 +19,10 @@ struct Start {
     settings: Option<RenderSetup>,
     transparent_background: bool,
     replace: bool,
+    progressive: bool,
+    samples: Option<u32>,
+    max_depth: Option<u32>,
+    seed: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -35,8 +39,15 @@ impl Default for EnvironmentRequest {
     }
 }
 
-type Prepared =
-    (Start, solidcraft_render::ProductScene, ImageRequest, Value, Option<solidcraft_render::lighting::environment_input::EnvironmentInput>);
+struct Prepared {
+    input: Start,
+    scene: solidcraft_render::ProductScene,
+    request: ImageRequest,
+    reply: Value,
+    environment: Option<solidcraft_render::lighting::environment_input::EnvironmentInput>,
+    /// Progressive requests run on the registered executor they resolved to; others on the CPU host.
+    registered: Option<(solidcraft_render::ExecutorId, solidcraft_render::job::JobOptions)>,
+}
 
 fn lower_led(input: &mut Start, command: &str) -> Result<()> {
     if input.led_strip.is_none() && input.led_samples.is_some() {
@@ -84,6 +95,22 @@ fn prepare(s: &Session, params: &Value, command: &str) -> Result<Prepared> {
     if input.setup.is_some() && input.settings.is_some() {
         return Err(bad(command, "choose either setup or settings"));
     }
+    if input.progressive {
+        // Registered progressive executors take raster requests only; CPU raytrace lighting
+        // inputs keep their own integrator and are never silently dropped.
+        if input.integrator != Integrator::Raster
+            || input.raytrace.is_some()
+            || input.environment.is_some()
+            || input.led_strip.is_some()
+            || input.led_samples.is_some()
+        {
+            return Err(bad(command, "progressive rendering cannot be combined with integrator: raytrace or its lighting options"));
+        }
+        return prepare_progressive(s, input, command);
+    }
+    if input.samples.is_some() || input.max_depth.is_some() || input.seed.is_some() {
+        return Err(bad(command, "sampling and exposure controls require progressive rendering"));
+    }
     // Reject unavailable execution before capturing authoritative product meshes.
     // Runtime services are independent of the document and can be checked cold.
     let host = s.render_job_host().ok_or_else(|| bad(command, "no image host is installed"))?;
@@ -130,20 +157,7 @@ fn prepare(s: &Session, params: &Value, command: &str) -> Result<Prepared> {
     if environment.is_some() {
         input.raytrace.as_ref().unwrap_or(&RaytraceOptions::default()).validate_environment_reflections(&scene).map_err(job_error)?;
     }
-    let settings = if let Some(name) = &input.setup {
-        s.doc.render.setups.get(name).cloned().ok_or_else(|| bad(command, "no saved render setup with that name"))?
-    } else if let Some(settings) = &input.settings {
-        settings.clone()
-    } else {
-        let mut settings = RenderSetup::default();
-        if let Some(camera) = s.camera {
-            settings.camera = camera;
-        } else {
-            settings.camera.fit(&scene.bounds);
-        }
-        settings
-    };
-    settings.validate().map_err(|e| bad(command, e.to_string()))?;
+    let settings = settings(s, &input, &scene, command)?;
     if settings.exposure_ev != 0.0 || settings.environment_rotation != 0.0 || settings.environment_intensity != 1.0 {
         return Err(bad(command, "exposure and environment controls are not supported by the R4a CPU image executor"));
     }
@@ -202,16 +216,89 @@ fn prepare(s: &Session, params: &Value, command: &str) -> Result<Prepared> {
         Integrator::Raytrace => "opaque_only",
     };
     let reply = json!({"environment":environment_info,"retained_request_bytes":retained_request_bytes,"resolved":resolved,"admission":admission,"request":request,"scene_generation":s.revision,"host":host.kind(),"transparency":transparency,"refraction":false});
-    Ok((input, scene, request, reply, environment))
+    Ok(Prepared { input, scene, request, reply, environment, registered: None })
+}
+
+fn settings(s: &Session, input: &Start, scene: &solidcraft_render::ProductScene, command: &str) -> Result<RenderSetup> {
+    let settings = if let Some(name) = &input.setup {
+        s.doc.render.setups.get(name).cloned().ok_or_else(|| bad(command, "no saved render setup with that name"))?
+    } else if let Some(settings) = &input.settings {
+        settings.clone()
+    } else {
+        let mut settings = RenderSetup::default();
+        if let Some(camera) = s.camera {
+            settings.camera = camera;
+        } else {
+            settings.camera.fit(&scene.bounds);
+        }
+        settings
+    };
+    settings.validate().map_err(|e| bad(command, e.to_string()))?;
+    Ok(settings)
+}
+
+/// Progressive sampling resolves by capability across every installed image host.
+fn prepare_progressive(s: &Session, input: Start, command: &str) -> Result<Prepared> {
+    let scene = crate::product_scene::extract(s)?;
+    let settings = settings(s, &input, &scene, command)?;
+    if settings.environment_rotation != 0.0 || settings.environment_intensity != 1.0 {
+        return Err(bad(command, "environment controls are not supported by the installed image executors"));
+    }
+    let mut options = solidcraft_render::job::JobOptions::default();
+    if let Some(samples) = input.samples {
+        options.samples = samples;
+    }
+    if let Some(depth) = input.max_depth {
+        options.max_depth = depth;
+    }
+    if let Some(seed) = input.seed {
+        options.seed = seed;
+    }
+    options.exposure_ev = settings.exposure_ev;
+    options.validate().map_err(job_error)?;
+    let mut features = scene.required_features();
+    features.push(solidcraft_render::RenderFeature::Progressive);
+    let resolved = solidcraft_render::resolve_request(
+        &[s.render_backend()],
+        &RenderRequest {
+            backend: Some(settings.backend.clone()),
+            mode: settings.mode,
+            operation: RenderOperation::Image,
+            width: u64::from(settings.width),
+            height: u64::from(settings.height),
+            format: Some(settings.format),
+            features,
+            policy: Default::default(),
+        },
+    )
+    .map_err(|e| bad(command, e.to_string()))?;
+    let host = s.render_jobs.host_for(&resolved.executor).ok_or_else(|| bad(command, "resolved executor is not installed as an image job host"))?;
+    if !host.is_available() {
+        return Err(bad(command, "image host is unavailable"));
+    }
+    let request = ImageRequest {
+        integrator: Integrator::Raster,
+        raytrace: None,
+        camera: settings.camera,
+        width: settings.width,
+        height: settings.height,
+        background: settings.background,
+        transparent_background: input.transparent_background,
+    };
+    let admission = host.admit(&scene, &request, options).map_err(job_error)?;
+    let reply = json!({"resolved":resolved,"admission":admission,"request":request,"scene_generation":s.revision,"host":host.kind(),"transparency":"opaque_only","options":options,"refraction":false});
+    Ok(Prepared { input, scene, request, reply, environment: None, registered: Some((resolved.executor, options)) })
 }
 
 pub(super) fn preflight(s: &mut Session, params: &Value) -> Result<Value> {
-    prepare(s, params, "render.preflight").map(|(_, _, _, reply, _)| reply)
+    prepare(s, params, "render.preflight").map(|prepared| prepared.reply)
 }
 
 pub(super) fn start(s: &mut Session, params: &Value) -> Result<Value> {
-    let (input, scene, request, _, environment) = prepare(s, params, "render.start")?;
-    let status = s.render_jobs.start_with_environment(s.revision, scene, request, input.replace, environment).map_err(job_error)?;
+    let p = prepare(s, params, "render.start")?;
+    let registered = p.registered.as_ref().map(|(executor, options)| (executor, *options));
+    let status =
+        s.render_jobs.start_with_environment(s.revision, p.scene, p.request, p.input.replace, p.environment, registered).map_err(job_error)?;
     Ok(json!(status))
 }
 
