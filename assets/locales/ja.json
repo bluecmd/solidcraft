@@ -731,6 +731,8 @@
   "pick one or two vertices, edges or faces": "1つまたは2つの頂点、エッジ、面を選択",
   "render.background": "シーンの背景",
   "render.fit": "製品を画面に合わせる",
+  "render.gpu_path_failed": "GPUパストレーサーを利用できません",
+  "render.gpu_path_preparing": "GPUパストレーサーを準備中…",
   "render.image_cancel": "レンダリングをキャンセル",
   "render.image_cancelled": "レンダリングをキャンセルしました",
   "render.image_cancelling": "キャンセル中",

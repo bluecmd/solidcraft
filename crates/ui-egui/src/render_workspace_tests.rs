@@ -3,6 +3,141 @@ use crate::scenario::Harness;
 use solidcraft_engine::Session;
 
 #[cfg(not(target_arch = "wasm32"))]
+mod async_path_host {
+    use super::*;
+    use solidcraft_engine::render::job;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    /// Advertise the path capability without opening a device or rendering anything.
+    struct TestExecutor;
+    impl job::ImageExecutor for TestExecutor {
+        fn descriptor(&self) -> job::Result<ExecutorDescriptor> {
+            let mut descriptor = job::CpuHost::cooperative().descriptor()?;
+            descriptor.id = ExecutorId::new("test-path").unwrap();
+            descriptor.profiles[0].features.push(solidcraft_engine::render::RenderFeature::Progressive);
+            Ok(descriptor)
+        }
+        fn admit(&self, _: &ProductScene, _: &job::ImageRequest, _: job::JobOptions) -> job::Result<job::Admission> {
+            panic!("setup tests must not render")
+        }
+        fn begin(&self, _: ProductScene, _: job::ImageRequest, _: job::JobOptions, _: job::CancelToken) -> job::Result<Box<dyn job::ImageWork>> {
+            panic!("setup tests must not render")
+        }
+    }
+
+    fn panel_fixture() -> Harness {
+        let mut h = Harness::new();
+        h.call("ui.resize", json!({"width":1600,"height":1600}));
+        enter(&mut h.app, true).unwrap();
+        h.frames(3);
+        h
+    }
+
+    fn finish_setup(h: &mut Harness) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while matches!(h.app.render_workspace.path_host, PathHost::Preparing(_)) {
+            assert!(Instant::now() < deadline, "test setup worker did not finish");
+            h.frames(1);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        h.frames(3);
+    }
+
+    #[test]
+    fn preparing_keeps_frames_responsive_then_registers_ready_host() {
+        let mut h = panel_fixture();
+        let cpu_host = h.app.session.render_job_host().unwrap().clone();
+        let (release, wait) = mpsc::channel();
+        let (started, thread) = mpsc::channel();
+        h.app.render_workspace.path_host.start(move || {
+            started.send(std::thread::current().id()).unwrap();
+            wait.recv_timeout(Duration::from_secs(10)).unwrap();
+            job::ImageHost::with_executor(Arc::new(TestExecutor)).map_err(|e| e.to_string())
+        });
+        assert_ne!(thread.recv_timeout(Duration::from_secs(10)).unwrap(), std::thread::current().id());
+        // A second viewport installation cannot replace or duplicate setup.
+        h.app.render_workspace.path_host.start(|| panic!("setup started twice"));
+        h.frames(3);
+        assert!(h.widget("GPU path tracer preparing…").is_some());
+        assert!(h.widget("Progressive rendering").is_none());
+        assert!(!h.app.session.render_backend().executors.iter().any(|e| e.id.as_str() == "test-path"));
+        let transparent = h.app.tr("render.image_transparent").to_string();
+        h.step(&json!({"widget":transparent})).unwrap();
+        assert!(h.app.render_workspace.view.transparent);
+        // Replacing the current document must retain the receiver while setup waits.
+        crate::documents::adopt(&mut h.app, Session::default());
+        assert!(matches!(h.app.render_workspace.path_host, PathHost::Preparing(_)));
+        enter(&mut h.app, true).unwrap();
+        h.frames(3);
+        assert!(h.widget("GPU path tracer preparing…").is_some());
+        enter(&mut h.app, false).unwrap();
+        release.send(()).unwrap();
+        finish_setup(&mut h);
+        assert!(matches!(h.app.render_workspace.path_host, PathHost::Ready(_)));
+        enter(&mut h.app, true).unwrap();
+        h.frames(3);
+        assert!(h.widget("GPU path tracer preparing…").is_none());
+        assert!(h.widget("Progressive rendering").is_some());
+        assert_eq!(h.app.session.render_backend().executors.iter().filter(|e| e.id.as_str() == "test-path").count(), 1);
+        assert!(h.app.session.render_job_host().unwrap().same_host(&cpu_host));
+        h.step(&json!({"widget":"Progressive rendering"})).unwrap();
+        assert!(h.app.render_workspace.view.progressive);
+        crate::documents::adopt(&mut h.app, Session::default());
+        assert!(matches!(h.app.render_workspace.path_host, PathHost::Ready(_)));
+        assert_eq!(h.app.session.render_backend().executors.iter().filter(|e| e.id.as_str() == "test-path").count(), 1);
+    }
+
+    #[test]
+    fn setup_error_is_visible_and_survives_document_reset() {
+        let mut h = panel_fixture();
+        h.app.render_workspace.path_host.start(|| Err("test driver refused the device".into()));
+        finish_setup(&mut h);
+        let message = "GPU path tracer unavailable: test driver refused the device";
+        assert!(h.widget(message).is_some());
+        assert!(h.widget("GPU path tracer preparing…").is_none());
+        assert!(h.widget("Progressive rendering").is_none());
+        assert!(h.app.session.render_job_host().is_some());
+        completed_preview(&mut h, [200, 210, 220]);
+        crate::documents::adopt(&mut h.app, Session::default());
+        enter(&mut h.app, true).unwrap();
+        h.frames(3);
+        assert!(h.widget(message).is_some());
+        h.app.render_workspace.path_host.start(|| panic!("failed setup retried on viewport install"));
+        assert!(matches!(h.app.render_workspace.path_host, PathHost::Failed(_)));
+    }
+
+    #[test]
+    fn disconnected_setup_is_reported_in_the_panel() {
+        let mut h = panel_fixture();
+        let (tx, rx) = mpsc::channel();
+        h.app.render_workspace.path_host = PathHost::Preparing(rx);
+        drop(tx);
+        h.frames(3);
+        assert!(h.widget("GPU path tracer unavailable: setup worker stopped without returning a host").is_some());
+    }
+
+    #[test]
+    fn panicking_setup_is_reported_in_the_panel() {
+        let mut h = panel_fixture();
+        h.app.render_workspace.path_host.start(|| panic!("simulated driver panic"));
+        finish_setup(&mut h);
+        assert!(h.widget("GPU path tracer unavailable: GPU path tracer setup panicked").is_some());
+    }
+
+    #[test]
+    fn registration_failure_is_reported_in_the_panel() {
+        let mut h = panel_fixture();
+        // A different host with the same CPU descriptor cannot be registered twice.
+        h.app.render_workspace.path_host.start(|| Ok(job::CpuHost::cooperative()));
+        finish_setup(&mut h);
+        let PathHost::Failed(message) = &h.app.render_workspace.path_host else { panic!("duplicate executor must fail") };
+        assert!(h.widget(&format!("GPU path tracer unavailable: {message}")).is_some());
+        assert!(h.widget("Progressive rendering").is_none());
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn opaque_pbr_product_gpu_and_cpu_share_color_and_material_semantics() {
     use solidcraft_engine::render::{
@@ -226,7 +361,7 @@ fn progressive_image_controls_route_to_the_registered_host() {
         }
     };
     let mut h = Harness::new();
-    h.app.render_workspace.path_host = Some(host);
+    h.app.render_workspace.path_host = PathHost::Ready(host);
     sync_backend(&mut h.app);
     h.app.run("solid.box", json!({"length":10,"width":20,"height":5})).unwrap();
     h.app.session.mark_saved();

@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use egui::{Color32, Sense};
 use serde_json::json;
 use solidcraft_engine::doc::render_settings::RenderSetup;
+use solidcraft_engine::render::job::ImageHost;
 use solidcraft_engine::render::{
     Availability, Camera, ExecutorDescriptor, ExecutorId, ProductScene, RenderLimits, RenderMode, RenderOperation, RenderProfile, RenderRequest,
     ScratchLayout,
@@ -22,7 +23,7 @@ mod tests;
 
 pub struct State {
     pub host: Option<ExecutorDescriptor>,
-    pub path_host: Option<solidcraft_engine::render::job::ImageHost>,
+    pub path_host: PathHost,
     pub image_host: Option<solidcraft_engine::render::job::CpuHost>,
     pub view: ViewState,
     revision: u64,
@@ -31,6 +32,52 @@ pub struct State {
     key: Option<u64>,
     scene_signature: Option<(u64, usize, u64)>,
     scene: Option<ProductScene>,
+}
+
+/// Application-wide setup, retained across document changes. The worker owns a
+/// cloned adapter and initializes the job device; the UI receives the finished host.
+#[derive(Default)]
+pub enum PathHost {
+    #[default]
+    NotStarted,
+    Preparing(std::sync::mpsc::Receiver<Result<ImageHost, String>>),
+    Ready(ImageHost),
+    Failed(String),
+}
+
+impl PathHost {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn start(&mut self, create: impl FnOnce() -> Result<ImageHost, String> + Send + 'static) {
+        if !matches!(self, Self::NotStarted) {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        // Dropping the handle detaches: neither startup nor shutdown joins a driver
+        // that may spend minutes compiling or warming up its pipelines.
+        *self = match std::thread::Builder::new().name("gpu-path-setup".into()).spawn(move || {
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(create)).unwrap_or_else(|_| Err("GPU path tracer setup panicked".into()));
+            let _ = tx.send(result);
+        }) {
+            Ok(_) => Self::Preparing(rx),
+            Err(e) => Self::failed(format!("could not start setup worker: {e}")),
+        };
+    }
+
+    fn failed(message: String) -> Self {
+        log::warn!("progressive render unavailable: {message}");
+        Self::Failed(message)
+    }
+
+    fn poll(&mut self) {
+        let Self::Preparing(rx) = self else { return };
+        *self = match rx.try_recv() {
+            Ok(Ok(host)) => Self::Ready(host),
+            Ok(Err(error)) => Self::failed(error),
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Self::failed("setup worker stopped without returning a host".into()),
+        };
+    }
 }
 
 /// Small per-document editor state; GPU uploads and host capabilities stay outside tabs.
@@ -67,7 +114,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             host: None,
-            path_host: None,
+            path_host: PathHost::default(),
             image_host: None,
             view: Default::default(),
             revision: u64::MAX,
@@ -112,9 +159,11 @@ pub fn host_executor(max_dimension: u32, depth: bool, samples: u32) -> Result<Ex
 }
 
 pub fn sync_backend(app: &mut SolveApp) {
-    if let Some(host) = app.render_workspace.path_host.clone()
-        && let Err(e) = app.session.register_render_job_host(host)
+    app.render_workspace.path_host.poll();
+    if let PathHost::Ready(host) = &app.render_workspace.path_host
+        && let Err(e) = app.session.register_render_job_host(host.clone())
     {
+        app.render_workspace.path_host = PathHost::failed(e.to_string());
         app.set_status(e.to_string(), true);
     }
 
@@ -135,6 +184,10 @@ pub fn sync_backend(app: &mut SolveApp) {
 /// Cooperative work belongs to the frame loop, never to a status/control request. Keep
 /// scheduling frames even after leaving Render so a browser job can finish in Design.
 pub fn tick(app: &mut SolveApp, ctx: &egui::Context) {
+    if matches!(app.render_workspace.path_host, PathHost::Preparing(_)) {
+        // Poll even in Design or an idle window, without continuously redrawing.
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
     if let Some(host) = &app.render_workspace.image_host {
         match host.pump(1024) {
             Ok(true) => ctx.request_repaint(),
@@ -147,7 +200,7 @@ pub fn tick(app: &mut SolveApp, ctx: &egui::Context) {
 pub fn reset_document(app: &mut SolveApp) {
     let host = app.render_workspace.host.clone();
     let image_host = app.render_workspace.image_host.clone();
-    let path_host = app.render_workspace.path_host.clone();
+    let path_host = std::mem::take(&mut app.render_workspace.path_host);
     app.render_workspace = State { host, image_host, path_host, ..Default::default() };
     if active(app) {
         app.ui.tab = "SOLID".into();
@@ -299,7 +352,16 @@ fn image_controls(app: &mut SolveApp, ui: &mut egui::Ui) {
             app.render_workspace.view.dirty = true;
         }
     }
-    if app.render_workspace.path_host.is_some() {
+    match &app.render_workspace.path_host {
+        PathHost::Preparing(_) => {
+            ui.label(app.tr("render.gpu_path_preparing"));
+        }
+        PathHost::Failed(error) => {
+            ui.label(format!("{}: {error}", app.tr("render.gpu_path_failed")));
+        }
+        _ => {}
+    }
+    if matches!(app.render_workspace.path_host, PathHost::Ready(_)) {
         let label = app.tr("render.image_progressive").to_string();
         ui.checkbox(&mut app.render_workspace.view.progressive, label);
         if app.render_workspace.view.progressive {
