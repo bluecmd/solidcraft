@@ -24,3 +24,10 @@
 | `anim/ui-teaser/quality/frame-000.png` | Original native-motion-study coffee scene, 1080p512-spp GPU path render on GB10 at 9a7b5349; SolidCraft project licence. |
 | `anim/ui-teaser/quality/frame-044.png` | Original native-motion-study coffee scene, 1080p512-spp GPU path render on GB10 at 9a7b5349; SolidCraft project licence. |
 | `anim/ui-teaser/quality/frame-089.png` | Original native-motion-study coffee scene, 1080p512-spp GPU path render on GB10 at 9a7b5349; SolidCraft project licence. |
+| `anim/ui-teaser/prototype-on-1640.patch` | Original opt-in native playback prototype patch for combined Render review revision 60f788b7; SolidCraft project licence. |
+| `anim/ui-teaser/prototype-on-1640-source.tgz` | Original exact native playback source used to build the final SolidCraft 0.15 viewer, based on combined Render revision 60f788b7; SolidCraft project licence. |
+| `anim/ui-teaser/capture.json` | Original exact native viewer source and binary hashes, capture settings and media verification; SolidCraft project licence. |
+| `anim/ui-teaser/frames-1080p512.json` | Original validated 90-frame SHA-256, GPU, input and timing manifest; SolidCraft project licence. |
+| `anim/ui-teaser/render-animation-wip-1440p.mp4` | Original native SolidCraft WIP playback recording at QHD, displaying 1080p512-spp motion-study frames; encoded with FFmpeg; SolidCraft project licence. |
+| `anim/ui-teaser/render-animation-wip-1080p.mp4` | Original native SolidCraft WIP playback recording, downscaled to 1080p from the QHD capture; encoded with FFmpeg; SolidCraft project licence. |
+| `anim/ui-teaser/render-animation-wip-poster.png` | Original unmodified native SolidCraft WIP playback screenshot displaying a 1080p512-spp motion-study frame; SolidCraft project licence. |

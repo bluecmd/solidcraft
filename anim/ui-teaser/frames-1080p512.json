@@ -1,0 +1,2008 @@
+{
+  "schema_version": 1,
+  "renderer_revision": "9a7b53498269866567ae2cb2b126609fd04f4c8e",
+  "frame_count": 90,
+  "settings": {
+    "width": 1920,
+    "height": 1080,
+    "samples": 512,
+    "max_depth": 12,
+    "seed": 1948,
+    "denoise": true,
+    "fps": 30
+  },
+  "animation": "Native motion.study / motion.play, study steps 0 through 89, one rendered image per step",
+  "postprocessing": "No external frame editing; the production renderer applies its configured spatial denoiser and ACES fitted tone mapping.",
+  "glass_diagnostics": "Exact tolerated glass-failure counts unavailable: this unmodified example does not initialize the log logger. Successful jobs do not establish zero failures.",
+  "glass_quality": "Glass bypasses spatial denoising and retains some grain.",
+  "timing_note": "These are per-frame timings on shared machines, not isolated benchmarks. Windows frames 059 through 063 overlapped a GUI check and were slower; image settings were unchanged.",
+  "package_note": "Quality package 3b194c7f and optimized batch package 91464fef have byte-identical render parameters; the latter omits 54 repeated read-only mass-property queries.",
+  "validation": "All 90 PNGs fully decoded at 1920x1080; frame numbers complete and unique; all assigned Linux render processes reported successful completion; Windows PNG hashes and byte counts match the delegate manifest; every frame render-parameter hash matches the public verified input package.",
+  "counts_by_runner": {
+    "windows": 45,
+    "gb10-1": 20,
+    "gb10-2": 25
+  },
+  "frames": [
+    {
+      "frame": 0,
+      "file": "frame-000.png",
+      "sha256": "3940a7b8de2344d6b85d7238f599bd068fc5bc05b4c19f032ed5c20a17ff1869",
+      "bytes": 553664,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "3b194c7f",
+      "render_params_sha256": "61bfcb3ef1db28da34ce89e9dffe7eab654c15062f0b271ec7191109fff1cd86",
+      "timings_seconds": {
+        "cad_generation_seconds": 7.1819311,
+        "gpu_host_setup_seconds": 408.3763569,
+        "render_and_encode_seconds": 56.6898032
+      }
+    },
+    {
+      "frame": 1,
+      "file": "frame-001.png",
+      "sha256": "78b38f382dd44ccc1aab8976e9c43a97b35f295e1b210bed5eb457900d53b19a",
+      "bytes": 554895,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "d04044a96c0120732cea7bcc44583d01eaa4d4591a10a048cb3a680d54f0bbdb",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1887279,
+        "gpu_host_setup_seconds": 0.0631179,
+        "render_and_encode_seconds": 56.5117792
+      }
+    },
+    {
+      "frame": 2,
+      "file": "frame-002.png",
+      "sha256": "773549ffe7cea19dc034e82df94cb3e600fcbf1086c7befbb6a658c116c0985e",
+      "bytes": 555369,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "a6721b416bd139d2eb0c79e6dc9c26df429a318d02ac48c51f570eb43256f94f",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2102241,
+        "gpu_host_setup_seconds": 0.0811852,
+        "render_and_encode_seconds": 56.4695162
+      }
+    },
+    {
+      "frame": 3,
+      "file": "frame-003.png",
+      "sha256": "d12a7ef92a762750a9aea6b073eb201f88227e5c8cd40b0143020375fbe76211",
+      "bytes": 554846,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "a8e7cacb00a833617c59f0215fe931c1f2117df6d415fbbce64d162ffa2b3964",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1780222,
+        "gpu_host_setup_seconds": 0.0671713,
+        "render_and_encode_seconds": 63.7111223
+      }
+    },
+    {
+      "frame": 4,
+      "file": "frame-004.png",
+      "sha256": "6efb7f14adb016e6a6eb13a936abaefad57905728f294195c2bcf0bea709a451",
+      "bytes": 554288,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "51418e725c547b2d9e9831b3456cbd4edbb1f4b3a4b11369c0c9ba4eb5772926",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1907828,
+        "gpu_host_setup_seconds": 0.0617735,
+        "render_and_encode_seconds": 62.4317595
+      }
+    },
+    {
+      "frame": 5,
+      "file": "frame-005.png",
+      "sha256": "0eec8bdd82d49838a9da1f6166474718e234d25a166c2c145de042cd9244c70d",
+      "bytes": 554495,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "634b52d005445c120a733666704b55ebf1ac12be65cb6dfdbf9f25942099dfb0",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1886354,
+        "gpu_host_setup_seconds": 0.0616002,
+        "render_and_encode_seconds": 63.8136815
+      }
+    },
+    {
+      "frame": 6,
+      "file": "frame-006.png",
+      "sha256": "9b0fdd33f1f422f690d6081339ef5ca4da62ff71159ca0c6214a5031b618ab5f",
+      "bytes": 554135,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "a2de2d2e7ea0b5f2b248d62b7b7cac9c4de0cde5c3669593822fee3982c4cbeb",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1931531,
+        "gpu_host_setup_seconds": 0.0614481,
+        "render_and_encode_seconds": 62.2857616
+      }
+    },
+    {
+      "frame": 7,
+      "file": "frame-007.png",
+      "sha256": "b84f8e28e0e1af2dd8d05dc7c2916d572e350f1c1b957ce8954d9c9af62a655e",
+      "bytes": 554042,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "b09e43149d0a64d0a9b964c5e642397042f3f40c6d5456ecf6d13084463c3fc9",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2026679,
+        "gpu_host_setup_seconds": 0.0693361,
+        "render_and_encode_seconds": 62.3123395
+      }
+    },
+    {
+      "frame": 8,
+      "file": "frame-008.png",
+      "sha256": "c6302953596f5459864445bf14f0f5fa59c5a909c79584635381304c5294f992",
+      "bytes": 553806,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "5c2f914073b9b60af65612db85de2b5b1321605a7fada8911c7995bf75604d06",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1945221,
+        "gpu_host_setup_seconds": 0.0679161,
+        "render_and_encode_seconds": 63.0482374
+      }
+    },
+    {
+      "frame": 9,
+      "file": "frame-009.png",
+      "sha256": "5399d888416165b83e9ebc583c87bbec85e43be4967ef1cec6743c20c852121a",
+      "bytes": 554109,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "504969d30a0edd59c49d3b6f556633c1057eecf6449b0eae40abab2967205138",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2160684,
+        "gpu_host_setup_seconds": 0.0613862,
+        "render_and_encode_seconds": 63.7949282
+      }
+    },
+    {
+      "frame": 10,
+      "file": "frame-010.png",
+      "sha256": "24f6043a2bdd8d756b5aa9d9c895be717ba956cd5c055e7d75c10ccd1396ad39",
+      "bytes": 554495,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "f90f1d05b34ec2d79132e4df955e536db39f80b94a56e461cce0cf17ec8e12c1",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1988792,
+        "gpu_host_setup_seconds": 0.0686421,
+        "render_and_encode_seconds": 64.8811046
+      }
+    },
+    {
+      "frame": 11,
+      "file": "frame-011.png",
+      "sha256": "25f6b93ba7a1510fc1d4e9cd407a1370ab4516834467026b229a03dff55dad1d",
+      "bytes": 555321,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "802edb8c9f1df9f84ad1071ad7bba0e42aff3cafbe7cb6a2d5cac295c7e8bdd0",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1922123,
+        "gpu_host_setup_seconds": 0.0634757,
+        "render_and_encode_seconds": 64.8471437
+      }
+    },
+    {
+      "frame": 12,
+      "file": "frame-012.png",
+      "sha256": "6b787b08fc667a2a41396d5e7d75c47cc2f8d1ef3fa4daf4ac395fd918857520",
+      "bytes": 554784,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "6a4bdc61c29496a8bdf1f725fd0742b60bcd7d4e0726d441eba1ac6e033f6c6e",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1956582,
+        "gpu_host_setup_seconds": 0.0716939,
+        "render_and_encode_seconds": 64.6832404
+      }
+    },
+    {
+      "frame": 13,
+      "file": "frame-013.png",
+      "sha256": "49a93b57b99a42a1a62542a8cfe59855de27fa4a92f127f6f4aac741174007d3",
+      "bytes": 554440,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "421eb744ed02a894e4227a64042e62c49a53d920827d88fbf98b673962b61d20",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2155347,
+        "gpu_host_setup_seconds": 0.0895782,
+        "render_and_encode_seconds": 64.7563249
+      }
+    },
+    {
+      "frame": 14,
+      "file": "frame-014.png",
+      "sha256": "b72e60862541a56a9997de763fe465d4b9772164dc36bb6eec982129653c5c27",
+      "bytes": 555614,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "1519980ee3c3b3f9a41a58575f3194e75738bbc7162f3da79665bb945a8e71a0",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2082785,
+        "gpu_host_setup_seconds": 0.0624455,
+        "render_and_encode_seconds": 64.659143
+      }
+    },
+    {
+      "frame": 15,
+      "file": "frame-015.png",
+      "sha256": "fc7d15d2543335ca78398273cd437e87a6b5f11c6d26325bbc88c7d0c6dfbaf4",
+      "bytes": 555734,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "ba827b13726e2e7a7fcab55f78ce7fb18e3ec440af3e0ad09d8fbc577be43762",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1959096,
+        "gpu_host_setup_seconds": 0.0648503,
+        "render_and_encode_seconds": 64.7162861
+      }
+    },
+    {
+      "frame": 16,
+      "file": "frame-016.png",
+      "sha256": "6c269672c1457c531647981da8cf42f9db84d30e4447a88c896de41e76ac05d2",
+      "bytes": 557015,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "aa2b5baad5b50acbd9372def30b78268334fa23c4a58a71644ee7e3716d5939d",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1725111,
+        "gpu_host_setup_seconds": 0.0672183,
+        "render_and_encode_seconds": 64.801889
+      }
+    },
+    {
+      "frame": 17,
+      "file": "frame-017.png",
+      "sha256": "df9e09633e440a9cf3e70f4af7e66023c5878ce644a06d7411d0f82fe6437a0e",
+      "bytes": 557012,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "3e7943e677aee96178519f5f2792910f0740a14f9ab5649acb74d8d8c1f2b699",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2057159,
+        "gpu_host_setup_seconds": 0.0767168,
+        "render_and_encode_seconds": 65.2474344
+      }
+    },
+    {
+      "frame": 18,
+      "file": "frame-018.png",
+      "sha256": "866d00d2bfa27f76c951fc5ec4a413cda4874d1b43b15cdc10c121e7e5803066",
+      "bytes": 558426,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "3a575ab82e7dcce63ecabbaaf2eea1d16f8086442c43289a5e3da531f832c4a0",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1960548,
+        "gpu_host_setup_seconds": 0.071101,
+        "render_and_encode_seconds": 64.7310714
+      }
+    },
+    {
+      "frame": 19,
+      "file": "frame-019.png",
+      "sha256": "2bb52f3cf9c6a4f184df0b9529804962cac12683b157821e37fa1849d694576a",
+      "bytes": 560361,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "a7a043374448cc8d16e641f6abea1ed3948a7509683edaabf71566ca24a4b381",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2330561,
+        "gpu_host_setup_seconds": 0.0629698,
+        "render_and_encode_seconds": 65.3315027
+      }
+    },
+    {
+      "frame": 20,
+      "file": "frame-020.png",
+      "sha256": "8b6a4c7eb645f8b6e42b24599c5c831eedfee7688b1b03a04959f6a67d692531",
+      "bytes": 563738,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "2b8b9fc1dda97ab9b1a99b9e7adcacf6ecbc632fb01f8b756af12e9d66359b19",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1897021,
+        "gpu_host_setup_seconds": 0.0777086,
+        "render_and_encode_seconds": 65.1330811
+      }
+    },
+    {
+      "frame": 21,
+      "file": "frame-021.png",
+      "sha256": "82e4a672b42cea1a6ced2fee93825f173731b05dfebff8f7c19d24bd6295df39",
+      "bytes": 564367,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "03486a1b8f68c43f4d1e2522b16a1c05fd956956150be4c285ea9c2a118750e3",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2101763,
+        "gpu_host_setup_seconds": 0.0620822,
+        "render_and_encode_seconds": 65.6752976
+      }
+    },
+    {
+      "frame": 22,
+      "file": "frame-022.png",
+      "sha256": "77b682624bce0b090660e10638634c186a4697bb857684932e3176904dfba123",
+      "bytes": 568947,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "02769f9c7b495a47501c08aeed8fb27a89b91dd10e510cfa4185fa340401adeb",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1985157,
+        "gpu_host_setup_seconds": 0.0999954,
+        "render_and_encode_seconds": 66.0615653
+      }
+    },
+    {
+      "frame": 23,
+      "file": "frame-023.png",
+      "sha256": "1861ddb769c3c88f706bf97161c17b08ff17459137045e6035555277b81a1994",
+      "bytes": 571729,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "63458ab21b05b673c382dd144a2749a48b18c167d34b6853a644405aa0a54efe",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2149958,
+        "gpu_host_setup_seconds": 0.0623458,
+        "render_and_encode_seconds": 66.3309709
+      }
+    },
+    {
+      "frame": 24,
+      "file": "frame-024.png",
+      "sha256": "d33090474be1befc3a4c07c6a23739d5f051d32cdcc45a6d4896f8eea1f90d31",
+      "bytes": 575261,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "5a48fea40181e93ae7299d63125c67ce49350e4108ee1879ce3b75793740cb74",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1962837,
+        "gpu_host_setup_seconds": 0.0645714,
+        "render_and_encode_seconds": 66.5150349
+      }
+    },
+    {
+      "frame": 25,
+      "file": "frame-025.png",
+      "sha256": "f0eada1bdc726d319c1c8836f1c3874033fa7f9442c6d420f62975fab54a8fe4",
+      "bytes": 583377,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "121d03926702166086e9f419e1cdd35a09125d3fdec87e7fc3fbffbff508a2e9",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.205839,
+        "gpu_host_setup_seconds": 0.0672607,
+        "render_and_encode_seconds": 66.9918304
+      }
+    },
+    {
+      "frame": 26,
+      "file": "frame-026.png",
+      "sha256": "e3771c5f62cea41bdd331ebf915a5fde45071a7948a85973c9c4b7548a319fc9",
+      "bytes": 586834,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "e48c4704d78ccb9df4e0f62835e2ed93f7d95500cdd619a4c5b083148bf670cb",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2059045,
+        "gpu_host_setup_seconds": 0.0670489,
+        "render_and_encode_seconds": 67.0618167
+      }
+    },
+    {
+      "frame": 27,
+      "file": "frame-027.png",
+      "sha256": "d0d900ff165aa610ba31c06304306e85b569f156b028dec493088f3ffc8235dd",
+      "bytes": 594582,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "0ae621609583ab94e3536a5c1482e92d8bf8e51506aa071e7b47bc7d6b194bfb",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1930799,
+        "gpu_host_setup_seconds": 0.0623236,
+        "render_and_encode_seconds": 67.9883695
+      }
+    },
+    {
+      "frame": 28,
+      "file": "frame-028.png",
+      "sha256": "b9546876c5f58df1129b2bf4c948b2ad38edc778803609e0df0c5d699cecc25a",
+      "bytes": 599576,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "98640ca922fdd0eb483815e06e6e7eebce1920d6e2cc7a29d6c450c99a1cf7eb",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1961169,
+        "gpu_host_setup_seconds": 0.070125,
+        "render_and_encode_seconds": 69.5333471
+      }
+    },
+    {
+      "frame": 29,
+      "file": "frame-029.png",
+      "sha256": "e142f4a40460e573451b8cbc8ed6261cad4de577c51e865bee2fbf375d92b802",
+      "bytes": 608940,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "14dd4993f0a490e161c60f91870d28b88c33fbbfb9a458da71a40b46cde0ef24",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1761588,
+        "gpu_host_setup_seconds": 0.0758615,
+        "render_and_encode_seconds": 70.4413087
+      }
+    },
+    {
+      "frame": 30,
+      "file": "frame-030.png",
+      "sha256": "83a16c0e02b81251a72edb7036d7337f61437c3fc66bc2a4f692be2af6f7c751",
+      "bytes": 614071,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "8b602436b42adaea8c92f5198e7447f901bf719da5dcf514b60c95a8df81f8ab",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1914962,
+        "gpu_host_setup_seconds": 0.0691394,
+        "render_and_encode_seconds": 71.1037957
+      }
+    },
+    {
+      "frame": 31,
+      "file": "frame-031.png",
+      "sha256": "352c59f108942ede71c071be6086fd2830f7b6eb008c5a4d8f4d7e8944ee41b5",
+      "bytes": 622263,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "b8b3a87f00535d6796402c3535464737d70af094df839d86bc273e53b192a361",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2235598,
+        "gpu_host_setup_seconds": 0.0620375,
+        "render_and_encode_seconds": 71.5779218
+      }
+    },
+    {
+      "frame": 32,
+      "file": "frame-032.png",
+      "sha256": "a12f32268c0d6178c0f4b8432a3ec43eead13153b61e80c2cb7fc299d177fe37",
+      "bytes": 627724,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "587ba8070e38e8d74455e50d5dab4b810799bd9122207fb44ade7ee22ec843c2",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1759597,
+        "gpu_host_setup_seconds": 0.0702756,
+        "render_and_encode_seconds": 72.0242702
+      }
+    },
+    {
+      "frame": 33,
+      "file": "frame-033.png",
+      "sha256": "8cdc231cfd0f3e77e53daf5a68cf7dac1937a2167e55c4483635e85341ec9e9e",
+      "bytes": 635873,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "6c398ed90e31dcc6e9296d220a459d1ba7b22de860fa4cfb4dcc76ea5b799806",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1947901,
+        "gpu_host_setup_seconds": 0.062351,
+        "render_and_encode_seconds": 73.3697687
+      }
+    },
+    {
+      "frame": 34,
+      "file": "frame-034.png",
+      "sha256": "e4de75a62cfe2a15c66119ffe849ee336d3f019629fc69aec3bfa162ed985f75",
+      "bytes": 643029,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "f4987789b9113d3ec0da257a242d922aac69fde6a4a47edc3f74b5e141db2e54",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2296408,
+        "gpu_host_setup_seconds": 0.0726895,
+        "render_and_encode_seconds": 73.8615216
+      }
+    },
+    {
+      "frame": 35,
+      "file": "frame-035.png",
+      "sha256": "b0f0129153a6635caaa4919eac8a92688879020ab2571533edcd8ea33fc1e2df",
+      "bytes": 652767,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "0fa4d0951e7a07925b142da34380d59f26d310dc4b21624136e03075e199bad1",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2023927,
+        "gpu_host_setup_seconds": 0.0688558,
+        "render_and_encode_seconds": 72.1520791
+      }
+    },
+    {
+      "frame": 36,
+      "file": "frame-036.png",
+      "sha256": "d4e3f5c01f19fbb08ccb3d8114832635a7a068e38923dd4372e643396c20b069",
+      "bytes": 660463,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "d99868298e65bbc98e1e6bcb8ca308b85eeb095ae58ba2affe301ff92e739915",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2052314,
+        "gpu_host_setup_seconds": 0.0616424,
+        "render_and_encode_seconds": 72.9154473
+      }
+    },
+    {
+      "frame": 37,
+      "file": "frame-037.png",
+      "sha256": "a57908d7ece2feabaea39d28e30e5adc30c0849cef9bb30f88d5aae9a9d13892",
+      "bytes": 668440,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "d70f7f68110c07624ceab0731907d2647595b6ed73fc107d7ed9bc46fbe1dc50",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2045756,
+        "gpu_host_setup_seconds": 0.0686149,
+        "render_and_encode_seconds": 64.7232104
+      }
+    },
+    {
+      "frame": 38,
+      "file": "frame-038.png",
+      "sha256": "abed39339605202e27157d70217d980242555eef3456697c67d2b76f8a5f792d",
+      "bytes": 673744,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "bc78509d4b7917a7dce6ffa29790321ab25859b3a97ced30d7bd3f25a8f3fe69",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.867516287,
+        "gpu_host_setup_seconds": 166.857831324,
+        "render_and_encode_seconds": 99.50360599
+      }
+    },
+    {
+      "frame": 39,
+      "file": "frame-039.png",
+      "sha256": "04ecbd7481808ea45b471c29539f024084d184241aabdb73898e4826a816443c",
+      "bytes": 678961,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "c9db6251898753de5c6ee9c96be13dfb41a45f4c82659fd390b01fdda38da056",
+      "timings_seconds": {
+        "cad_generation_seconds": 4.123843066,
+        "gpu_host_setup_seconds": 175.458291393,
+        "render_and_encode_seconds": 99.926877614
+      }
+    },
+    {
+      "frame": 40,
+      "file": "frame-040.png",
+      "sha256": "c892fdeb40ece37fc1dc6927e8923b2e6261a30902914d15b21997d2afdbc171",
+      "bytes": 684584,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "dff719f08b12b9a8c0dc18a255c7c3f2bda990862dd6a0644f80e9b4f09073f2",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.793237747,
+        "gpu_host_setup_seconds": 192.729063778,
+        "render_and_encode_seconds": 99.405844896
+      }
+    },
+    {
+      "frame": 41,
+      "file": "frame-041.png",
+      "sha256": "36931d90277b6ab589e95e7208da13b6baba2793ce2eb19f49a22275bb49f0bb",
+      "bytes": 687287,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "db219a429785d9ab120915a1bf6976c88da07249d75ea728baa76b8a2ad36b61",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.770794374,
+        "gpu_host_setup_seconds": 0.123549589,
+        "render_and_encode_seconds": 99.252124706
+      }
+    },
+    {
+      "frame": 42,
+      "file": "frame-042.png",
+      "sha256": "8b62571259b41edb9f0d505b966984c6279b9ef625e85873e4e097dd54f1d3f6",
+      "bytes": 689660,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "c54248bcd806fc8151f7fb2015aa482c060b465b03f4963695da881ab97cdc2e",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.685715771,
+        "gpu_host_setup_seconds": 0.126771843,
+        "render_and_encode_seconds": 99.23224098
+      }
+    },
+    {
+      "frame": 43,
+      "file": "frame-043.png",
+      "sha256": "d4f0030399013bc6c504ca6be00c3cb90402684c82748a471c1892d01e5c6d29",
+      "bytes": 692250,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "9eadf1805acf10df7c8e2e18a1d19530e18ac08feb470d6b1a78ba9b78de27eb",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.510909411,
+        "gpu_host_setup_seconds": 0.093681766,
+        "render_and_encode_seconds": 99.931397559
+      }
+    },
+    {
+      "frame": 44,
+      "file": "frame-044.png",
+      "sha256": "972a61b432fda0c60f91a7f5d4281ced86b045bc21d0ba853c6bec12295169f3",
+      "bytes": 694637,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "3b194c7f",
+      "render_params_sha256": "f82db10d52f3b06475d0b96937bb60a370f226613473b9f0ee4917d69debe6b7",
+      "timings_seconds": {
+        "cad_generation_seconds": 7.1391377,
+        "gpu_host_setup_seconds": 0.0800898,
+        "render_and_encode_seconds": 66.1076255
+      }
+    },
+    {
+      "frame": 45,
+      "file": "frame-045.png",
+      "sha256": "d7adb30bec3fb05aab4a16158413a156802ba8ae19ef8d94d25e377bfcaddf13",
+      "bytes": 695500,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "fde1b4111ac68d14d8607bbf19e18598a663147d39f02a90515decbc976df91d",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.554623131,
+        "gpu_host_setup_seconds": 0.09636121,
+        "render_and_encode_seconds": 99.981888113
+      }
+    },
+    {
+      "frame": 46,
+      "file": "frame-046.png",
+      "sha256": "a49b8c5654be04c7ba890b90407b04d022433cd41384c39317fe2d92e320547a",
+      "bytes": 699387,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "0a39c36eef7b333d5f99f677c2d5b645132e9d81b3d01c581d95bbdb0aad56cf",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.328280933,
+        "gpu_host_setup_seconds": 0.095679671,
+        "render_and_encode_seconds": 99.899900439
+      }
+    },
+    {
+      "frame": 47,
+      "file": "frame-047.png",
+      "sha256": "ffa160539e5f15a63826c239faf3f267300c4f782d3efbd630fd8315f2f6b08e",
+      "bytes": 700803,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "7994f06264fca09d35414b0f6b133bd0bcaaffce69483346d01d89510190acda",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.794838345,
+        "gpu_host_setup_seconds": 0.127457331,
+        "render_and_encode_seconds": 100.166605924
+      }
+    },
+    {
+      "frame": 48,
+      "file": "frame-048.png",
+      "sha256": "66eeff901988fd3cc3b1a6cb1f1bc2c6bc3cc824df45b57518bbd3a95e1751cb",
+      "bytes": 702973,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "6d3321eb62d3eecf257c292aaeadf924cf9dce445e33c0a6758064c9d2148476",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.426180169,
+        "gpu_host_setup_seconds": 0.126951616,
+        "render_and_encode_seconds": 99.935166794
+      }
+    },
+    {
+      "frame": 49,
+      "file": "frame-049.png",
+      "sha256": "f0aeed30bfeb3b75edf962d8325116a43a68be15f46bd4706b6fdd188936f7e2",
+      "bytes": 705242,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "d320b558fc22cb7970961c8ed673c09d77fbb0cd3025a049b210df934b839e15",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.398544703,
+        "gpu_host_setup_seconds": 0.097821079,
+        "render_and_encode_seconds": 100.921829084
+      }
+    },
+    {
+      "frame": 50,
+      "file": "frame-050.png",
+      "sha256": "8afa70ee2bfc1101a81c9290c2b0ae242974bcd8099e67f9b2c2b4a5e6bc1876",
+      "bytes": 706130,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "f184842bb205a5393a97949f1b680c08082734925c9e3ba4a524d7677d6b3491",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.365099748,
+        "gpu_host_setup_seconds": 0.126945561,
+        "render_and_encode_seconds": 101.638470984
+      }
+    },
+    {
+      "frame": 51,
+      "file": "frame-051.png",
+      "sha256": "ae589295b7e6d0d565055ddd4a21065b008674446a6d8e7b0cf56a4dae6edf85",
+      "bytes": 708551,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "bc62654b9ad98bdb1386ab9bb121e774850027f0a49aa1c8820b57e15dd92e86",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.516038216,
+        "gpu_host_setup_seconds": 0.099022913,
+        "render_and_encode_seconds": 102.230520228
+      }
+    },
+    {
+      "frame": 52,
+      "file": "frame-052.png",
+      "sha256": "d7dd7f6481de5cdd97b35f81f96cd505318c2596f4925b82169e4eb7546f1a4e",
+      "bytes": 710697,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "354fb60e1e160636d5327a5c18c3314103d5813eb54a2f6f87c00881a41965cc",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.164283432,
+        "gpu_host_setup_seconds": 0.127101545,
+        "render_and_encode_seconds": 102.035226271
+      }
+    },
+    {
+      "frame": 53,
+      "file": "frame-053.png",
+      "sha256": "0e9f441dddcce4c2c39f20c079056d7418c6282019e22add1cb2be9e800045f4",
+      "bytes": 710747,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "60b61fc7d4c6187bab28415f4444e4946181101cd070e18798d5955ef9ac4be1",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.6198915940000003,
+        "gpu_host_setup_seconds": 0.102054196,
+        "render_and_encode_seconds": 101.484525533
+      }
+    },
+    {
+      "frame": 54,
+      "file": "frame-054.png",
+      "sha256": "b63b533de3fc7679cab8d2445e0489d29ac998fcffa6d6569167c8d06a4ed1f6",
+      "bytes": 711665,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "9839fc0d5dd5852107056f67965665f84891e3d096f8ec98552286af98493f82",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.381741577,
+        "gpu_host_setup_seconds": 0.126885241,
+        "render_and_encode_seconds": 101.488023488
+      }
+    },
+    {
+      "frame": 55,
+      "file": "frame-055.png",
+      "sha256": "c6f2369159375299d726c23cef187def09b74d6f8710c0579005b59adec0f287",
+      "bytes": 714403,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "38a5c4af0bb6f5ed4f7ad3bfbf70c33e5ab4b7a69dace02fb287846db73aa9ca",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.422134501,
+        "gpu_host_setup_seconds": 0.146768898,
+        "render_and_encode_seconds": 101.068901256
+      }
+    },
+    {
+      "frame": 56,
+      "file": "frame-056.png",
+      "sha256": "1f819eb94a4a50e626f00af9c2e9513e250cd1107e874df3345227ea494d3017",
+      "bytes": 712863,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "c3dfba50371a22266af4813510b9b64ceb42cc2d225e10d491c915baeccbf78c",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.402778599,
+        "gpu_host_setup_seconds": 0.096687323,
+        "render_and_encode_seconds": 100.959739915
+      }
+    },
+    {
+      "frame": 57,
+      "file": "frame-057.png",
+      "sha256": "da34eda3f17d701c02b5952b357d25c4e82034a7c5a39e0eb432c3162979a7c8",
+      "bytes": 711666,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "bdba16da6c400b1f17cdb6a30b0a1d77436e3d961f462346244fbe8511e2578c",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.243244336,
+        "gpu_host_setup_seconds": 0.12689362,
+        "render_and_encode_seconds": 101.475412904
+      }
+    },
+    {
+      "frame": 58,
+      "file": "frame-058.png",
+      "sha256": "dba874a751b946e0fbd017395b7dbd7ed33728fc129cd22b088239b1c2fa6e43",
+      "bytes": 711024,
+      "runner": "gb10-1",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "210e92e415480c4bdfeb324ede4a1be051ba8503152df9c28eb77159aa4e5824",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.557758431,
+        "gpu_host_setup_seconds": 0.095660582,
+        "render_and_encode_seconds": 101.589830452
+      }
+    },
+    {
+      "frame": 59,
+      "file": "frame-059.png",
+      "sha256": "3d675f4fb6bd76ab573a1d467e1ac2724f771826eac0b1ce95ca67a40d836471",
+      "bytes": 711405,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "afe226a5c8308e3673e0cb0634e4e228347e942428a0c91ab62621ef352cc872",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2070309,
+        "gpu_host_setup_seconds": 0.0666364,
+        "render_and_encode_seconds": 76.7812036
+      }
+    },
+    {
+      "frame": 60,
+      "file": "frame-060.png",
+      "sha256": "3ced3f0a549beed4e7be5067b29f52d2e3064c0de851eb4b1e2782fe94a3b11b",
+      "bytes": 712899,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "37174c98ba1208cc55e2c4de9c9d006a6434f448750531eab9d481a1f0ee5ef8",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1732187,
+        "gpu_host_setup_seconds": 0.0624267,
+        "render_and_encode_seconds": 82.0308897
+      }
+    },
+    {
+      "frame": 61,
+      "file": "frame-061.png",
+      "sha256": "c3afdce748bb37f7618fab0b3c932c2e29484eff1f6a6bf89af111cbb1125789",
+      "bytes": 713617,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "b9ee04466ab1f2cbe5e49c8b4504dd36e0522d449ee9c186fba8c496eb8f468c",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1955943,
+        "gpu_host_setup_seconds": 0.0656976,
+        "render_and_encode_seconds": 82.376368
+      }
+    },
+    {
+      "frame": 62,
+      "file": "frame-062.png",
+      "sha256": "03ef152de24584975e02bdf5604ab2180e87ed5401fae30b0c52e79d22587af7",
+      "bytes": 714887,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "6768311b1cbe7e33900ae9f836836f1effb0bf734eeb5034cb4c9a672443f883",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.2046213,
+        "gpu_host_setup_seconds": 0.0739785,
+        "render_and_encode_seconds": 82.2311367
+      }
+    },
+    {
+      "frame": 63,
+      "file": "frame-063.png",
+      "sha256": "73170a74d28905f78b4fcaaa0aab8836f55b34dee9f1d091a1c016d856eedb8d",
+      "bytes": 713964,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "1b14bbb72c7312aec0a3ab3d33acc89746c5c77f30f582effffd0e33167248fd",
+      "timings_seconds": {
+        "cad_generation_seconds": 1.1813356,
+        "gpu_host_setup_seconds": 0.0748062,
+        "render_and_encode_seconds": 82.2306083
+      }
+    },
+    {
+      "frame": 64,
+      "file": "frame-064.png",
+      "sha256": "4a333c647c9fbbab5443ee680a0561ca6abe51acd9ebc4197e4e16fbbf2beed0",
+      "bytes": 714314,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "7fc33d0c569cb5fa7f2ad5df2ef29702ce59edcbcbfcf6a34511585c72806457",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.442579555,
+        "gpu_host_setup_seconds": 163.79710184,
+        "render_and_encode_seconds": 100.609767252
+      }
+    },
+    {
+      "frame": 65,
+      "file": "frame-065.png",
+      "sha256": "f94dca0d6c4c258fd737c0b98c9213d46286eb74adb79716daf01b1a12f4e9c9",
+      "bytes": 715915,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "a5f597fe0ad7e79566cc15b39c54067d82f6b9d9d4acfb9442375b4cb2cdd53f",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.473475974,
+        "gpu_host_setup_seconds": 0.095348496,
+        "render_and_encode_seconds": 99.833531178
+      }
+    },
+    {
+      "frame": 66,
+      "file": "frame-066.png",
+      "sha256": "5c976733fe6e3550947d0d76cb9114cf7750cf9936916cc5a1bbd201a8b638f7",
+      "bytes": 713870,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "35cf56f520492fec2aefdfa3e0f9911545193385688d7ec8a6c74010ded157d6",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.427187182,
+        "gpu_host_setup_seconds": 0.125767159,
+        "render_and_encode_seconds": 101.463510575
+      }
+    },
+    {
+      "frame": 67,
+      "file": "frame-067.png",
+      "sha256": "16321a649cab80be04433e61dddc7b866e00149e34c5bc1b0d7ad2388e6c1b9e",
+      "bytes": 713552,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "2f66112bdf250dbdde997273d35c55c700c209aeceb34550194818ee1843461c",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.485347458,
+        "gpu_host_setup_seconds": 0.118538265,
+        "render_and_encode_seconds": 101.366886831
+      }
+    },
+    {
+      "frame": 68,
+      "file": "frame-068.png",
+      "sha256": "aea817889b17f1c7c76446381e84439886428b23eb18812bbab0d8a03b838b8f",
+      "bytes": 714770,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "59bd39e29d5c9d2371d3d8b22a62751f217ad3cbb00e7fa17ab533fb8505f747",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.702992618,
+        "gpu_host_setup_seconds": 0.121916823,
+        "render_and_encode_seconds": 101.673887658
+      }
+    },
+    {
+      "frame": 69,
+      "file": "frame-069.png",
+      "sha256": "78509ca3187e7164cc9d355a8a1320ea924b8763febcb0ee5665848b5440c65b",
+      "bytes": 716137,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "84e3001cd61549ff4fa86830eeed2e4f13083bca1fa30cb996453d4be86ea594",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.584076698,
+        "gpu_host_setup_seconds": 0.124713399,
+        "render_and_encode_seconds": 104.329408982
+      }
+    },
+    {
+      "frame": 70,
+      "file": "frame-070.png",
+      "sha256": "970e14ae723dce6a458e22ce4bd028091d2385c6d9c1f4e0ecf12608718bdc80",
+      "bytes": 712904,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "90a5ca0b4c5953d45a6ab151a14d2ce088a0ab4983adb709b428b981a10a9e9b",
+      "timings_seconds": {
+        "cad_generation_seconds": 6.841541698,
+        "gpu_host_setup_seconds": 0.147303496,
+        "render_and_encode_seconds": 107.639092969
+      }
+    },
+    {
+      "frame": 71,
+      "file": "frame-071.png",
+      "sha256": "1ff5bec4f67de1b93eb7feb245b2ea8b0d8af5bc899bf25703f361f0d3a3c89e",
+      "bytes": 712695,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "436708b091a1dcdc3bc1be91abc62f9aeedecd8a7e7d855bda975b6736d95d57",
+      "timings_seconds": {
+        "cad_generation_seconds": 6.617084784,
+        "gpu_host_setup_seconds": 0.179487249,
+        "render_and_encode_seconds": 107.308022345
+      }
+    },
+    {
+      "frame": 72,
+      "file": "frame-072.png",
+      "sha256": "0160cded4aacfe119cfb62a4b2b482f43445d40b682445772e27e0e2aa5ea2da",
+      "bytes": 713958,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "f29b8b48bb8637729ad857f0a9941447913c8eea7c08af5c063a491072d0c555",
+      "timings_seconds": {
+        "cad_generation_seconds": 7.18007994,
+        "gpu_host_setup_seconds": 0.175679202,
+        "render_and_encode_seconds": 104.311393855
+      }
+    },
+    {
+      "frame": 73,
+      "file": "frame-073.png",
+      "sha256": "b426b70451baadfecdaf727c79ce466e8d5ed86b417f7618517d20298e9f1ce8",
+      "bytes": 713039,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "c1d7abc0ddeb274e58943157ee18cecdbd7a64d5da266f5f3635ebb620492718",
+      "timings_seconds": {
+        "cad_generation_seconds": 5.205699833,
+        "gpu_host_setup_seconds": 0.16760598,
+        "render_and_encode_seconds": 103.556654253
+      }
+    },
+    {
+      "frame": 74,
+      "file": "frame-074.png",
+      "sha256": "e5cadb02d489334b15019f52257d491ba955fe434c463651d592ad5e3c4751df",
+      "bytes": 713049,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "79b36d4858766c50b2ad689cd0772350d55af1c63c9fe383b57685f72d8af388",
+      "timings_seconds": {
+        "cad_generation_seconds": 5.988771119,
+        "gpu_host_setup_seconds": 0.123807294,
+        "render_and_encode_seconds": 103.668339555
+      }
+    },
+    {
+      "frame": 75,
+      "file": "frame-075.png",
+      "sha256": "dcf699b1114bf502c6c6e3686e4a2c695d1e7fb2d73f0a3572c4404885392eff",
+      "bytes": 713015,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "60709372df0e636f6dd3606956008df8e28a738234d6ea3dfa96217e991c2067",
+      "timings_seconds": {
+        "cad_generation_seconds": 4.725050655,
+        "gpu_host_setup_seconds": 0.109204505,
+        "render_and_encode_seconds": 103.34299693
+      }
+    },
+    {
+      "frame": 76,
+      "file": "frame-076.png",
+      "sha256": "e99fb77803f3d046dda88cebdd65a1f824e4bff1446935d40bdd1121a47bc62f",
+      "bytes": 713983,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "51cf5ccda31a8c92aa45e9e05afe4ebc02d1eb5fac254d8444f35d05cb17d188",
+      "timings_seconds": {
+        "cad_generation_seconds": 5.9452814,
+        "gpu_host_setup_seconds": 0.132178425,
+        "render_and_encode_seconds": 102.997012411
+      }
+    },
+    {
+      "frame": 77,
+      "file": "frame-077.png",
+      "sha256": "d6d34e3251c8d6b91d5ed611aa7977d1990bbd10b2290074194027b1416b7598",
+      "bytes": 712800,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "1345f66460d0dae17e25b5a1d8ae16b81f994dcc1d106bf6268b848ab765c39b",
+      "timings_seconds": {
+        "cad_generation_seconds": 4.360352058,
+        "gpu_host_setup_seconds": 0.123876754,
+        "render_and_encode_seconds": 101.848795732
+      }
+    },
+    {
+      "frame": 78,
+      "file": "frame-078.png",
+      "sha256": "aef4330d40426b13a17fc56109db5cc8d74d4a93da3f1c5f1c82c817a31315e0",
+      "bytes": 714802,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "448d8516e566c0a8267128e43c1fde484b16bcd8d9de612896867c495f6e3fc6",
+      "timings_seconds": {
+        "cad_generation_seconds": 4.217385697,
+        "gpu_host_setup_seconds": 0.111278286,
+        "render_and_encode_seconds": 101.475765442
+      }
+    },
+    {
+      "frame": 79,
+      "file": "frame-079.png",
+      "sha256": "785a9991765207806dc36fd556ba76484908e8d8f572ab7175efc21b567ed872",
+      "bytes": 713694,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "599d32a4eab6917cec0c85d9c1d01b0d34acd49d56b6f334ff76a6a513ec2804",
+      "timings_seconds": {
+        "cad_generation_seconds": 4.148173133,
+        "gpu_host_setup_seconds": 0.138185604,
+        "render_and_encode_seconds": 104.934376415
+      }
+    },
+    {
+      "frame": 80,
+      "file": "frame-080.png",
+      "sha256": "d0c2aa839093e48df002b7819edf500e13a9fb71a0c9e4f8819c7c1d8aec7a1e",
+      "bytes": 713767,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "ef8ffb0ffd56a6a3650e67dfdaa3dd6ceda17616ac732b868d57d081d8980473",
+      "timings_seconds": {
+        "cad_generation_seconds": 7.647313896,
+        "gpu_host_setup_seconds": 0.129061702,
+        "render_and_encode_seconds": 101.053179953
+      }
+    },
+    {
+      "frame": 81,
+      "file": "frame-081.png",
+      "sha256": "ead9e6355f8e6422e4e938b81dfeaa2b6d65c270a5cd685e400672f09d44db1e",
+      "bytes": 712964,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "579856e512b2e8e54b510a2cebc8cc0647116b5422c55017bd24d31498a031b5",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.246798993,
+        "gpu_host_setup_seconds": 0.134777133,
+        "render_and_encode_seconds": 100.735232779
+      }
+    },
+    {
+      "frame": 82,
+      "file": "frame-082.png",
+      "sha256": "62b4455e187fc3dc1b48206d77ae28ea183218a0e715eaa9015e25107ea6a9cd",
+      "bytes": 714394,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "37aeda2db59b8c82eb250450155976c8b648116737a114f4dacb3a3c7e4e2c90",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.229365505,
+        "gpu_host_setup_seconds": 0.093495245,
+        "render_and_encode_seconds": 100.315114968
+      }
+    },
+    {
+      "frame": 83,
+      "file": "frame-083.png",
+      "sha256": "f75c38a8c9800ac792f641062a87506dc387a26b4ec4ac01836458c21fff5cfd",
+      "bytes": 714960,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "c8cb773b3d0c709984ce08c425d112b586aaa6ac75f774209131ade0b24b0500",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.572214088,
+        "gpu_host_setup_seconds": 0.097589775,
+        "render_and_encode_seconds": 100.363626242
+      }
+    },
+    {
+      "frame": 84,
+      "file": "frame-084.png",
+      "sha256": "b7968fbada52ed83f314dcafde312b20ed6dfc5c22036dc3387ab114adae0453",
+      "bytes": 714408,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "53c3b448ce583bad7d7136591dade2e97f7a9b95b313c780e18301324d767a12",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.39875592,
+        "gpu_host_setup_seconds": 0.119559278,
+        "render_and_encode_seconds": 100.296495875
+      }
+    },
+    {
+      "frame": 85,
+      "file": "frame-085.png",
+      "sha256": "bd93f23bf42d2861a90941d6c367e1c6666c2b486275ec3d34df30125ee83c41",
+      "bytes": 714107,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "ab8f389598f8ecab9267872624702a8b7a3653fa6225ab2bf1f0436561d81af1",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.566521438,
+        "gpu_host_setup_seconds": 0.142457335,
+        "render_and_encode_seconds": 100.155588297
+      }
+    },
+    {
+      "frame": 86,
+      "file": "frame-086.png",
+      "sha256": "37256ba3c6d472368c480ca0776963c2525fff28fc3abc910d04525ee148fde9",
+      "bytes": 714439,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "fd78fa54b449ba39f37799395c0d471fabc2415a2134bd4c74853fdfaa2d51a3",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.216875173,
+        "gpu_host_setup_seconds": 0.09836967,
+        "render_and_encode_seconds": 100.129111662
+      }
+    },
+    {
+      "frame": 87,
+      "file": "frame-087.png",
+      "sha256": "922705244a8ecc5be15eb179c3639e36cf47f57181aa65b48863c09b95111241",
+      "bytes": 714891,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "a905929ab3ddf5593bc9b8a46c76c0a2a34cf2999023ca7b58c50f9d830715d6",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.221501058,
+        "gpu_host_setup_seconds": 0.140123044,
+        "render_and_encode_seconds": 100.021680455
+      }
+    },
+    {
+      "frame": 88,
+      "file": "frame-088.png",
+      "sha256": "d5592ec3d94e210bb1ecfbf1f48cd4474fc56dd81bf946465ab43ea953af454d",
+      "bytes": 713493,
+      "runner": "gb10-2",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "IntegratedGpu",
+        "driver": "NVIDIA 595.91.07",
+        "name": "NVIDIA GB10",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "d9f1ba3d19b886aca60a8448ad0932853a0ad230525450293dfb677c9f3f0166",
+      "input_package_revision": "91464fef",
+      "render_params_sha256": "c3239b48e5fdbffc205fba2fce8af10b78e21f081c00b9e08e0ff394c20af108",
+      "timings_seconds": {
+        "cad_generation_seconds": 3.249402559,
+        "gpu_host_setup_seconds": 0.125938576,
+        "render_and_encode_seconds": 99.796649348
+      }
+    },
+    {
+      "frame": 89,
+      "file": "frame-089.png",
+      "sha256": "6d23ee9a112c7354de5b2f6e758c2cc6568f7b5d1da2f0e93e524468bba0ed7e",
+      "bytes": 715200,
+      "runner": "windows",
+      "adapter": {
+        "backend": "Vulkan",
+        "device_type": "DiscreteGpu",
+        "driver": "NVIDIA 616.56",
+        "name": "NVIDIA GeForce RTX 4090",
+        "tier": "hardware"
+      },
+      "renderer_binary_sha256": "e541aae4bb28771f66f54465b9f55a0c0a7904cfb29a666352acb9c45f498a1c",
+      "input_package_revision": "3b194c7f",
+      "render_params_sha256": "3f2e0b7026ced1deae4f93838dbf17f7e7fd66cd91fb20ee42a5bfa08a5da850",
+      "timings_seconds": {
+        "cad_generation_seconds": 7.0298638,
+        "gpu_host_setup_seconds": 0.0701975,
+        "render_and_encode_seconds": 66.1024466
+      }
+    }
+  ]
+}

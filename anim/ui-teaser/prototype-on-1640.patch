@@ -1,0 +1,241 @@
+--- a/crates/ui-egui/src/lib.rs
++++ b/crates/ui-egui/src/lib.rs
+@@ -126,6 +126,8 @@
+ mod primitive_units_tests;
+ pub mod recovery_ui;
+ pub mod ref_images;
++#[cfg(not(target_arch = "wasm32"))]
++mod render_teaser;
+ pub mod render_workspace;
+ #[cfg(test)]
+ mod revolve_edit_tests;
+--- a/crates/ui-egui/src/render_workspace.rs
++++ b/crates/ui-egui/src/render_workspace.rs
+@@ -271,6 +271,11 @@
+ }
+ 
+ pub fn panel(app: &mut SolveApp, ui: &mut egui::Ui) {
++    #[cfg(not(target_arch = "wasm32"))]
++    if crate::render_teaser::enabled() {
++        crate::render_teaser::panel(ui);
++        return;
++    }
+     if app.render_workspace.revision != app.session.revision && !app.render_workspace.view.dirty {
+         app.render_workspace.view.draft = app.session.doc.render.setups.get(&app.render_workspace.view.name).cloned().unwrap_or_default();
+         app.render_workspace.revision = app.session.revision;
+@@ -842,6 +847,10 @@
+ }
+ 
+ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
++    #[cfg(not(target_arch = "wasm32"))]
++    if crate::render_teaser::show(ui) {
++        return;
++    }
+     let rect = ui.max_rect();
+     app.viewport.rect = Some(rect);
+     crate::viewport::refresh_layout(app, ui.ctx().pixels_per_point());
+--- /dev/null
++++ b/crates/ui-egui/src/render_teaser.rs
+@@ -0,0 +1,202 @@
++//! Opt-in playback mockup for a clearly labelled WIP recording. Not production UI.
++//! Set SOLIDCRAFT_RENDER_TEASER_DIR to 90 original frame-NNN.png renders.
++use crate::theme::Tokens;
++use egui::{Color32, FontId, Pos2, Rect, RichText, TextureHandle, UiBuilder, Vec2};
++use std::{
++    cell::RefCell,
++    io::Read,
++    path::Path,
++    time::{Duration, Instant},
++};
++
++thread_local! {
++    static PLAYER: RefCell<Option<Result<Player, String>>> = const { RefCell::new(None) };
++}
++
++pub(crate) fn enabled() -> bool {
++    std::env::var_os("SOLIDCRAFT_RENDER_TEASER_DIR").is_some()
++}
++
++struct Player {
++    frames: Vec<TextureHandle>,
++    size: Vec2,
++    started: Instant,
++    anchor: usize,
++    playing: bool,
++    looping: bool,
++    samples: u32,
++}
++
++impl Player {
++    fn load(ctx: &egui::Context, directory: &Path) -> Result<Self, String> {
++        let mut frames = Vec::new();
++        frames.try_reserve_exact(90).map_err(|e| e.to_string())?;
++        let mut size = Vec2::ZERO;
++        for index in 0..90 {
++            let path = directory.join(format!("frame-{index:03}.png"));
++            let mut bytes = Vec::new();
++            std::fs::File::open(&path)
++                .map_err(|e| format!("{}: {e}", path.display()))?
++                .take(16_777_217)
++                .read_to_end(&mut bytes)
++                .map_err(|e| e.to_string())?;
++            if bytes.len() > 16_777_216 {
++                return Err("teaser PNG exceeds 16 MiB".into());
++            }
++            let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png);
++            let mut limits = image::Limits::default();
++            limits.max_image_width = Some(3840);
++            limits.max_image_height = Some(2160);
++            limits.max_alloc = Some(67_108_864);
++            reader.limits(limits);
++            let image = reader.decode().map_err(|e| e.to_string())?.to_rgba8();
++            let dimensions = Vec2::new(image.width() as f32, image.height() as f32);
++            if index == 0 {
++                size = dimensions;
++            }
++            if dimensions != size || size.x < 1.0 || size.y < 1.0 {
++                return Err("teaser frame dimensions differ".into());
++            }
++            let pixels = egui::ColorImage::from_rgba_unmultiplied([image.width() as usize, image.height() as usize], image.as_raw());
++            frames.push(ctx.load_texture(format!("teaser_{index}"), pixels, egui::TextureOptions::LINEAR));
++        }
++        let samples =
++            std::env::var("SOLIDCRAFT_RENDER_TEASER_SPP").ok().and_then(|s| s.parse().ok()).filter(|n: &u32| (1..=4096).contains(n)).unwrap_or(64);
++        Ok(Self { frames, size, started: Instant::now(), anchor: 0, playing: true, looping: true, samples })
++    }
++
++    fn frame(&self) -> usize {
++        let elapsed = if self.playing { (self.started.elapsed().as_secs_f64() * 30.0) as usize } else { 0 };
++        let frame = self.anchor.saturating_add(elapsed);
++        if self.looping { frame % 90 } else { frame.min(89) }
++    }
++
++    fn toggle(&mut self) {
++        self.anchor = self.frame();
++        self.started = Instant::now();
++        self.playing = !self.playing;
++    }
++
++    fn controls(&mut self, ui: &mut egui::Ui) {
++        ui.horizontal(|ui| {
++            if ui.button(if self.playing { "Pause" } else { "Play" }).clicked() {
++                self.toggle();
++            }
++            if ui.button("Restart").clicked() {
++                self.anchor = 0;
++                self.started = Instant::now();
++                self.playing = true;
++            }
++            ui.checkbox(&mut self.looping, "Loop");
++            ui.label(format!("{:03} / 090", self.frame() + 1));
++        });
++        let mut frame = self.frame() as u32;
++        if ui.add(egui::Slider::new(&mut frame, 0..=89).show_value(false)).changed() {
++            self.anchor = frame as usize;
++            self.playing = false;
++        }
++    }
++}
++
++fn with_player(ui: &mut egui::Ui, draw: impl FnOnce(&mut Player, &mut egui::Ui)) -> bool {
++    let Some(directory) = std::env::var_os("SOLIDCRAFT_RENDER_TEASER_DIR") else { return false };
++    PLAYER.with(|slot| {
++        let mut slot = slot.borrow_mut();
++        match slot.get_or_insert_with(|| Player::load(ui.ctx(), Path::new(&directory))) {
++            Ok(player) => {
++                draw(player, ui);
++                if player.playing {
++                    ui.ctx().request_repaint_after(Duration::from_millis(16));
++                }
++            }
++            Err(error) => {
++                ui.colored_label(Tokens::get().error, error.as_str());
++            }
++        }
++    });
++    true
++}
++
++pub(crate) fn panel(ui: &mut egui::Ui) {
++    egui::Panel::right("sc_render_settings")
++        .exact_size(285.0)
++        .resizable(false)
++        .frame(egui::Frame::NONE.fill(Tokens::get().panel).inner_margin(16))
++        .show(ui, |ui| {
++            with_player(ui, |player, ui| {
++                ui.heading("Render Animation");
++                ui.add_space(8.0);
++                ui.label(RichText::new("WORK IN PROGRESS").strong().color(Tokens::get().accent));
++                ui.small("Playback UI mockup");
++                ui.add_space(18.0);
++                ui.label(RichText::new("Exploded coffee machine").strong());
++                ui.small("Studio lighting · physical glass");
++                ui.add_space(16.0);
++                ui.separator();
++                ui.add_space(12.0);
++                ui.label(RichText::new("Animation preview").strong());
++                ui.add_space(8.0);
++                player.controls(ui);
++                ui.add_space(18.0);
++                ui.separator();
++                ui.add_space(12.0);
++                ui.label(RichText::new("Render quality").strong());
++                ui.add_space(8.0);
++                egui::Grid::new("teaser_quality").spacing([18.0, 10.0]).show(ui, |ui| {
++                    ui.label("Renderer");
++                    ui.label("GPU path tracer");
++                    ui.end_row();
++                    ui.label("Resolution");
++                    ui.label(format!("{} × {}", player.size.x as u32, player.size.y as u32));
++                    ui.end_row();
++                    ui.label("Samples / pixel");
++                    ui.label(player.samples.to_string());
++                    ui.end_row();
++                    ui.label("Denoising");
++                    ui.label("On");
++                    ui.end_row();
++                    ui.label("Frames");
++                    ui.label("90 at 30 fps");
++                    ui.end_row();
++                });
++                ui.add_space(24.0);
++                ui.add_enabled(false, egui::Button::new("Export Animation…"));
++                ui.add_space(8.0);
++                ui.small("A preview of the animation + ray tracing workflow. UI and integration are in progress.");
++            });
++        });
++}
++
++pub(crate) fn show(ui: &mut egui::Ui) -> bool {
++    with_player(ui, |player, ui| {
++        let rect = ui.max_rect();
++        let tokens = Tokens::get();
++        ui.painter().rect_filled(rect, 0.0, tokens.panel_header);
++        let header = Rect::from_min_size(rect.min + Vec2::new(24.0, 20.0), Vec2::new(rect.width() - 48.0, 40.0));
++        let mut heading = ui.new_child(UiBuilder::new().max_rect(header));
++        heading.horizontal(|ui| {
++            ui.label(RichText::new("Animation preview").size(22.0).strong());
++            ui.add_space(16.0);
++            ui.label(RichText::new("WORK IN PROGRESS · UI MOCKUP").color(tokens.accent));
++        });
++        let available = Rect::from_min_max(rect.min + Vec2::new(24.0, 80.0), rect.max - Vec2::new(24.0, 122.0));
++        let scale = (available.width() / player.size.x).min(available.height() / player.size.y).max(0.01);
++        let image_rect = Rect::from_center_size(available.center(), player.size * scale);
++        if let Some(texture) = player.frames.get(player.frame()) {
++            ui.painter().image(texture.id(), image_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
++        }
++        let bottom = Rect::from_min_size(Pos2::new(rect.left() + 24.0, rect.bottom() - 96.0), Vec2::new(rect.width() - 48.0, 80.0));
++        let mut controls = ui.new_child(UiBuilder::new().max_rect(bottom));
++        controls.style_mut().spacing.slider_width = (rect.width() - 280.0).max(100.0);
++        player.controls(&mut controls);
++        controls
++            .label(RichText::new(format!("GPU path tracing  ·  {} samples per pixel  ·  Spatial denoising", player.samples)).color(tokens.text_dim));
++        ui.painter().text(
++            Pos2::new(rect.right() - 24.0, rect.bottom() - 72.0),
++            egui::Align2::RIGHT_TOP,
++            format!("{:.2} s / 3.00 s", player.frame() as f32 / 30.0),
++            FontId::proportional(13.0),
++            tokens.text_dim,
++        );
++    })
++}

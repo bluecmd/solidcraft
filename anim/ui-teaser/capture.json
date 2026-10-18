@@ -1,0 +1,118 @@
+{
+  "viewer_base": "60f788b7994688b94545999292395892d6c17c5a",
+  "viewer_app_version": "0.15.0",
+  "prototype_source_files": {
+    "lib.rs": "9bcb65603483bb5f5d3637575a709b33b9c1efb68040f52e88510488ad6bd80d",
+    "render_workspace.rs": "4ac8e7b57024d945efcc9b0ce81509f4e0193ea1471a42042ff77094dc177b25",
+    "render_teaser.rs": "0c66378aba8e349124c0cb2a6579fc2e5398063c29fb69a29aad681905d34a74"
+  },
+  "binary_sha256": "fb2f9fba78f8e6ea6a6124dcbe0d5f4899679f778ae3d4621709e331a9414ac4",
+  "build": "cargo build --profile ci -p solidcraft",
+  "build_seconds": 201,
+  "git_metadata": "Archive build; application reports unknown commit. Base and opt-in source changes are identified separately.",
+  "capture_target": {
+    "width": 2560,
+    "height": 1440,
+    "fps": 30,
+    "ui_scale": 1.2,
+    "duration_seconds": 14,
+    "frames": 420
+  },
+  "renderer": "9a7b53498269866567ae2cb2b126609fd04f4c8e",
+  "frame_settings": {
+    "width": 1920,
+    "height": 1080,
+    "samples": 512,
+    "max_depth": 12,
+    "seed": 1948,
+    "denoise": true
+  },
+  "capture_method": "Actual native SolidCraft window on Xvfb, captured with FFmpeg x11grab; no compositing or overlays; pointer hidden in capture.",
+  "frame_manifest": "frames-1080p512.json",
+  "frame_manifest_sha256": "e36a9d82d02a43230263588a2e30ba385266fb9ebd7a8f7f20c9c96682dbec6c",
+  "input_frame_count": 90,
+  "source_archive_sha256": "bb3332b805736ed3aa72eadc39545b89f836c96bd99ae3976dfec47b58d85dc4",
+  "prototype_patch_sha256": "f884a0bd64474f7c8d6a321de2b67a8d4e215e9c98fb9a631d62e2d6b91ba5bf",
+  "verified_at_utc": "2026-10-18T23:16:41.690212+00:00",
+  "pointer_checks": {
+    "input_frames": "Final 1080p512-spp set",
+    "pause_roi_identical_after_seconds": 0.8,
+    "scrub_changes_image": true,
+    "playback_changes_image": true,
+    "comparison_roi_pixels": [
+      360,
+      250,
+      2155,
+      1255
+    ]
+  },
+  "video_sample_inspection_seconds": [
+    3.5,
+    5.5
+  ],
+  "master": {
+    "format": "Matroska / lossless RGB H.264",
+    "encoder": "libx264rgb, ultrafast, CRF 0, RGB24",
+    "sha256": "759d44f78abb41790900f1b2409fccc63912a1206778a084f913eca8ee43de43",
+    "retained": "Local lossless master; public sharing copies listed below."
+  },
+  "media": {
+    "render-animation-wip-1440p.mp4": {
+      "sha256": "90f90a58d676944f4f7194dda106741fef7b6c965ba7f68c511286d11a649376",
+      "bytes": 3823345,
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 2560,
+            "height": 1440,
+            "pix_fmt": "yuv420p",
+            "color_range": "tv",
+            "color_space": "bt709",
+            "r_frame_rate": "30/1",
+            "nb_read_frames": "420"
+          }
+        ],
+        "format": {
+          "duration": "14.000000",
+          "size": "3823345"
+        }
+      },
+      "encoder": "libx264, medium, CRF 15, BT709, YUV420p, faststart",
+      "audio": false
+    },
+    "render-animation-wip-1080p.mp4": {
+      "sha256": "afdd9cce52f4ca65e73bcd58d6640f293341ed397f677139e8431241972648bc",
+      "bytes": 2384940,
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1920,
+            "height": 1080,
+            "pix_fmt": "yuv420p",
+            "color_range": "tv",
+            "color_space": "bt709",
+            "r_frame_rate": "30/1",
+            "nb_read_frames": "420"
+          }
+        ],
+        "format": {
+          "duration": "14.000000",
+          "size": "2384940"
+        }
+      },
+      "encoder": "libx264, medium, CRF 15, BT709, YUV420p, faststart",
+      "audio": false
+    },
+    "render-animation-wip-poster.png": {
+      "sha256": "651d9638d4335f17329a1d324f79841c33de8f73e140cdfd987483a367336f1e",
+      "bytes": 1718540,
+      "width": 2560,
+      "height": 1440,
+      "description": "Unmodified actual native UI screenshot, paused at frame 089"
+    }
+  }
+}
