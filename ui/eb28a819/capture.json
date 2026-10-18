@@ -1,0 +1,21 @@
+{
+  "source_commit": "eb28a819ca9e7ea20b4e51700f95f06076a6af65",
+  "source_archive_sha256": "dfa2813f8e0ca4c4e9317eee3ec19fba73ed75f71741a324e3b76cd3e4877e2e",
+  "binary_embedded_commit": "unknown (source archive excluded .git)",
+  "adapter": "NVIDIA GB10",
+  "backend": "Vulkan",
+  "build": "cargo build --release -p solidcraft",
+  "image": {
+    "width": 1280,
+    "height": 720,
+    "samples": 512,
+    "executor": "gpu-path"
+  },
+  "scene": "original examples/studio/stage1.json",
+  "capture": {
+    "width": 1280,
+    "height": 960,
+    "method": "native desktop ui.screenshot under Xvfb"
+  },
+  "interaction": "Scene and camera through control commands; Perspective, Width, Height, Progressive, Samples, Check and Start through pointer/keyboard events; completed image displayed by the app."
+}
