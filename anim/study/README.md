@@ -36,3 +36,7 @@ SOLIDCRAFT_GPU=hardware WGPU_BACKEND=vulkan target/release/examples/studio_evide
 These are original procedural project assets under the SolidCraft project licence.
 The UI playback teaser is a separate opt-in mockup, not an integrated animation
 export feature or a final Render UI design.
+
+Per-frame recipes omit the 54 read-only occurrence.properties measurements that
+remain in study.json for one-time verification; modelling and motion commands
+are identical. This avoids repeating mass-property integration on every render.

@@ -100,6 +100,8 @@ def main():
     })
     for frame in range(FRAMES):
         r = copy.deepcopy(recipe)
+        # Measurement commands belong to one-time validation, not each render.
+        r["commands"] = [c for c in r["commands"] if c["command"] != "occurrence.properties"]
         r["commands"].append({"command": "motion.play", "params": {"study": STUDY, "step": frame}})
         r["commands"].append({"command": "joint.list", "params": {}})
         q = copy.deepcopy(render)
