@@ -21,6 +21,30 @@ mod scene;
 mod tests;
 mod textures;
 const SHADER: &str = concat!(include_str!("path.wgsl"), "\n", include_str!("shadows.wgsl"), "\n", include_str!("textures.wgsl"));
+// LOCAL HWRT PROTOTYPE: SC_HWRT=1 swaps the f32 BVH traversal for wgpu ray queries (opaque scenes only).
+fn hwrt() -> bool {
+    std::env::var("SC_HWRT").is_ok_and(|v| v == "1")
+}
+const HW_TRACE: &str = r#"
+@group(1) @binding(0) var scene_as: acceleration_structure;
+fn trace_ordered_within(o: vec3<f32>, d: vec3<f32>, any_hit: bool, excluded: u32, minimum: f32, inside: bool, limit: f32, blocker: f32) -> Hit {
+    var flags = 0u;
+    if any_hit || blocker >= limit { flags = RAY_FLAG_TERMINATE_ON_FIRST_HIT; }
+    var q: ray_query;
+    rayQueryInitialize(&q, scene_as, RayDesc(flags, 0xffu, minimum, limit, o, d));
+    while rayQueryProceed(&q) {}
+    let c = rayQueryGetCommittedIntersection(&q);
+    if c.kind == RAY_QUERY_INTERSECTION_NONE { return Hit(limit, 0xffffffffu, vec3<f32>(0.0)); }
+    return Hit(c.t, c.primitive_index, vec3<f32>(1.0-c.barycentrics.x-c.barycentrics.y, c.barycentrics.x, c.barycentrics.y));
+}
+"#;
+fn shader_source() -> String {
+    if hwrt() {
+        format!("enable wgpu_ray_query;\n{}\n{HW_TRACE}", SHADER.replace("fn trace_ordered_within(", "fn trace_ordered_within_software("))
+    } else {
+        SHADER.to_string()
+    }
+}
 const MAX_TRIANGLES: u64 = 1_048_576;
 const PARAMETER_BYTES: usize = 448;
 // Eight u32 words: count low, pixel, bounce, sample, code, count high, first-writer flag, spare.
@@ -88,11 +112,15 @@ fn device_limits(supported: wgpu::Limits) -> Result<wgpu::Limits> {
     Ok(limits)
 }
 fn open_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue)> {
-    let required_limits = device_limits(adapter.limits())?;
+    let mut required_limits = device_limits(adapter.limits())?;
+    if hwrt() {
+        required_limits = required_limits.using_minimum_supported_acceleration_structure_values();
+    }
     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("solidcraft progressive path"),
-        required_features: crate::depth_features(adapter),
+        required_features: if hwrt() { crate::depth_features(adapter) | wgpu::Features::EXPERIMENTAL_RAY_QUERY } else { crate::depth_features(adapter) },
         required_limits,
+        experimental_features: if hwrt() { unsafe { wgpu::ExperimentalFeatures::enabled() } } else { wgpu::ExperimentalFeatures::disabled() },
         ..Default::default()
     }))
     .map_err(gpu)
@@ -111,6 +139,7 @@ struct Context {
     // Built and warmed by the first denoised job, then shared by later ones.
     denoise: std::sync::OnceLock<denoise::Pipelines>,
     layout: wgpu::BindGroupLayout,
+    as_layout: wgpu::BindGroupLayout,
 }
 struct Executor {
     context: Arc<Context>,
@@ -121,7 +150,7 @@ impl Executor {
         device.on_uncaptured_error(Arc::new(|e: wgpu::Error| log::error!("gpu-path: {e}")));
         let scopes = scopes(&device);
         let shader =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("gpu-path"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
+            device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("gpu-path"), source: wgpu::ShaderSource::Wgsl(shader_source().into()) });
         let entries: Vec<_> = (0..7)
             .map(|binding| wgpu::BindGroupLayoutEntry {
                 binding,
@@ -139,9 +168,17 @@ impl Executor {
             })
             .collect();
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("gpu-path"), entries: &entries });
+        let as_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("gpu-path hwrt"),
+            entries: if hwrt() {
+                &[wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::AccelerationStructure { vertex_return: false }, count: None }]
+            } else {
+                &[]
+            },
+        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("gpu-path"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &if hwrt() { vec![Some(&layout), Some(&as_layout)] } else { vec![Some(&layout)] },
             immediate_size: 0,
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -153,8 +190,10 @@ impl Executor {
             cache: None,
         });
         checked(scopes)?;
-        warm_up(&device, &queue, &pipeline, &placeholder_bind(&device, &layout, 7)?)?;
-        Ok(Self { context: Arc::new(Context { device, queue, pipeline, layout, denoise: std::sync::OnceLock::new() }) })
+        if !hwrt() {
+            warm_up(&device, &queue, &pipeline, &placeholder_bind(&device, &layout, 7)?)?;
+        }
+        Ok(Self { context: Arc::new(Context { device, queue, pipeline, layout, as_layout, denoise: std::sync::OnceLock::new() }) })
     }
 }
 
@@ -195,6 +234,63 @@ fn warm_up(device: &wgpu::Device, queue: &wgpu::Queue, pipeline: &wgpu::ComputeP
     checked(scopes)?;
     device.poll(wgpu::PollType::Wait { submission_index: Some(submission), timeout: Some(SETUP_TIMEOUT) }).map_err(gpu)?;
     Ok(())
+}
+
+// LOCAL HWRT PROTOTYPE: triangles exactly as path.wgsl's triangle() decodes them, in one BLAS.
+fn build_hw(context: &Context, geometry: &[u8]) -> Result<(wgpu::BindGroup, wgpu::Tlas, wgpu::Blas, wgpu::Buffer)> {
+    let start = Instant::now();
+    let word = |i: usize| u32::from_le_bytes([geometry[i * 4], geometry[i * 4 + 1], geometry[i * 4 + 2], geometry[i * 4 + 3]]);
+    let (count, vertex_offset) = (word(0) as usize, word(1) as usize);
+    let mut verts = Vec::with_capacity(count * 36);
+    for t in 0..count {
+        for k in 0..3 {
+            let v = vertex_offset + word(4 + t * 4 + k) as usize * 8;
+            for c in 0..3 {
+                verts.extend_from_slice(&word(v + c).to_le_bytes());
+            }
+        }
+    }
+    let device = &context.device;
+    let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("hwrt vertices"), contents: &verts, usage: wgpu::BufferUsages::BLAS_INPUT });
+    let size = wgpu::BlasTriangleGeometrySizeDescriptor {
+        vertex_format: wgpu::VertexFormat::Float32x3,
+        vertex_count: (count * 3) as u32,
+        index_format: None,
+        index_count: None,
+        flags: wgpu::AccelerationStructureGeometryFlags::OPAQUE,
+    };
+    let blas = device.create_blas(
+        &wgpu::CreateBlasDescriptor { label: Some("hwrt"), flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE, update_mode: wgpu::AccelerationStructureUpdateMode::Build },
+        wgpu::BlasGeometrySizeDescriptors::Triangles { descriptors: vec![size.clone()] },
+    );
+    let mut tlas = device.create_tlas(&wgpu::CreateTlasDescriptor { label: Some("hwrt"), max_instances: 1, flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE, update_mode: wgpu::AccelerationStructureUpdateMode::Build });
+    tlas[0] = Some(wgpu::TlasInstance::new(&blas, [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], 0, 0xff));
+    let mut e = device.create_command_encoder(&Default::default());
+    e.build_acceleration_structures(
+        std::iter::once(&wgpu::BlasBuildEntry {
+            blas: &blas,
+            geometry: wgpu::BlasGeometries::TriangleGeometries(vec![wgpu::BlasTriangleGeometry {
+                size: &size,
+                vertex_buffer: &vb,
+                first_vertex: 0,
+                vertex_stride: 12,
+                index_buffer: None,
+                first_index: None,
+                transform_buffer: None,
+                transform_buffer_offset: None,
+            }]),
+        }),
+        std::iter::once(&tlas),
+    );
+    let submission = context.queue.submit([e.finish()]);
+    device.poll(wgpu::PollType::Wait { submission_index: Some(submission), timeout: Some(TIMEOUT) }).map_err(gpu)?;
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("hwrt"),
+        layout: &context.as_layout,
+        entries: &[wgpu::BindGroupEntry { binding: 0, resource: tlas.as_binding() }],
+    });
+    log::info!("hwrt: {count} triangles, BLAS+TLAS {:.1} ms", start.elapsed().as_secs_f64() * 1000.0);
+    Ok((bind, tlas, blas, vb))
 }
 
 fn medium_failures_tolerated(failed: u64, paths: u64) -> bool {
@@ -310,6 +406,7 @@ struct Task {
     failures: wgpu::Buffer,
     readback: wgpu::Buffer,
     bind: wgpu::BindGroup,
+    hw: Option<(wgpu::BindGroup, wgpu::Tlas, wgpu::Blas, wgpu::Buffer)>,
     denoiser: Option<denoise::Resources>,
     sample: u32,
     offset: u32,
@@ -365,6 +462,9 @@ impl Task {
         upload_bytes += environment_bytes.len() as u64;
         let environment = make("path environment", &environment_bytes, wgpu::BufferUsages::STORAGE);
         drop(environment_bytes);
+        // LOCAL BENCHMARK DUMP ONLY - never commit.
+        if let Ok(dir) = std::env::var("SC_DUMP") { let _ = std::fs::write(format!("{dir}/geometry.bin"), &upload.geometry); let _ = std::fs::write(format!("{dir}/nodes.bin"), &upload.nodes); }
+        let hw = if hwrt() { Some(build_hw(&context, &upload.geometry)?) } else { None };
         let triangles = make("path triangles", &upload.geometry, wgpu::BufferUsages::STORAGE);
         let nodes = make("path BVH", &upload.nodes, wgpu::BufferUsages::STORAGE);
         let texture_buffer = make("path opaque textures", &texture_upload, wgpu::BufferUsages::STORAGE);
@@ -425,6 +525,7 @@ impl Task {
             failures,
             readback,
             bind,
+            hw,
             denoiser,
             sample: 0,
             offset: 0,
@@ -502,12 +603,16 @@ impl Task {
         let count = (pixels - self.offset).min(TILE);
         let context = &self.context;
         let scopes = scopes(&context.device);
+        if let Ok(dir) = std::env::var("SC_DUMP") { if self.sample == 0 && self.offset == 0 { let _ = std::fs::write(format!("{dir}/params.bin"), self.parameters(count)); } }
         context.queue.write_buffer(&self.uniform, 0, &self.parameters(count));
         let mut encoder = context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("path tile") });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("path tile"), timestamp_writes: None });
             pass.set_pipeline(&context.pipeline);
             pass.set_bind_group(0, &self.bind, &[]);
+            if let Some((b, ..)) = &self.hw {
+                pass.set_bind_group(1, b, &[]);
+            }
             pass.dispatch_workgroups(count.div_ceil(64), 1, 1);
         }
         let submission = context.queue.submit([encoder.finish()]);

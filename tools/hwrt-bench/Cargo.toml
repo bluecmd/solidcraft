@@ -1,0 +1,15 @@
+[package]
+name = "hwrt-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Private benchmark, never part of SolidCraft: it needs `unsafe` for wgpu's experimental-feature token.
+[dependencies]
+wgpu = "=30.0.1"
+pollster = "0.4"
+
+[workspace]
+
+[profile.release]
+debug = false

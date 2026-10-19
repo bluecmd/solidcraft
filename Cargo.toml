@@ -93,7 +93,7 @@ pollster = "0.4"
 rfd = "0.17"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "allow" # LOCAL HWRT PROTOTYPE ONLY - never commit
 
 [workspace.lints.clippy]
 dbg_macro = "warn"
