@@ -286,7 +286,15 @@ pub(super) fn edit_solved<T>(
     if sk.patterns.iter().any(|p| p.count_expression.is_some()) {
         doc.apply_pattern_quantities(&doc.param_values().0, &mut sk)?;
     }
-    super::sketch_project::refresh(s, &doc, id, &mut sk);
+    // The next frame of a live gesture on this sketch, nothing else run since the last one: its
+    // links are as that frame projected them, from a model that hasn't changed (#3222).
+    let fresh = s
+        .live_links
+        .as_ref()
+        .is_some_and(|(sketch, after, revision)| *sketch == id && std::sync::Arc::ptr_eq(after, &s.doc) && *revision == s.revision);
+    if !fresh {
+        super::sketch_project::refresh(s, &doc, id, &mut sk);
+    }
     // The stored sketch is solved for its stored values.
     let stored = sk.driving_values();
     let (out, left) = f(&mut sk, &mut doc)?;
