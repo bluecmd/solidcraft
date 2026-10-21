@@ -412,7 +412,7 @@ fn a_live_gesture_projects_a_face_sketchs_links_once() {
     refresh_count::take();
     at = live_frame(&mut s, &point, at, 0.5);
     run(&mut s, "sketch.solve", json!({}));
-    at = live_frame(&mut s, &point, at, 0.5);
+    live_frame(&mut s, &point, at, 0.5);
     assert_eq!(refresh_count::take(), 2);
     run(&mut s, "edit.undo", json!({}));
     let at = pt(&s, &point);
