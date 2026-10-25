@@ -529,6 +529,48 @@ fn shader_validates_without_a_device() {
     naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty()).validate(&module).unwrap();
 }
 
+/// #6705: native compilers inline every call. With 33 inlined BVH walks in `main` (three path
+/// samples, a shadow walk per light source family) NVIDIA's Vulkan compiler crashed or ran out
+/// of memory and never built the pipeline. Count the walks `main` inlines, so another call site
+/// is a deliberate choice, checked on such a driver.
+#[test]
+fn main_inlines_few_bvh_walks() {
+    fn callees(block: &naga::Block, out: &mut Vec<naga::Handle<naga::Function>>) {
+        for statement in block.iter() {
+            match statement {
+                naga::Statement::Call { function, .. } => out.push(*function),
+                naga::Statement::Block(inner) => callees(inner, out),
+                naga::Statement::If { accept, reject, .. } => {
+                    callees(accept, out);
+                    callees(reject, out);
+                }
+                naga::Statement::Switch { cases, .. } => cases.iter().for_each(|case| callees(&case.body, out)),
+                naga::Statement::Loop { body, continuing, .. } => {
+                    callees(body, out);
+                    callees(continuing, out);
+                }
+                _ => {}
+            }
+        }
+    }
+    fn walks(module: &naga::Module, function: &naga::Function) -> usize {
+        let mut called = Vec::new();
+        callees(&function.body, &mut called);
+        called
+            .into_iter()
+            .map(|handle| {
+                let callee = &module.functions[handle];
+                let walk = matches!(callee.name.as_deref(), Some("trace_precise_within" | "trace_ordered_within"));
+                usize::from(walk) + walks(module, callee)
+            })
+            .sum()
+    }
+    let module = naga::front::wgsl::parse_str(SHADER).unwrap();
+    let main = module.entry_points.iter().find(|entry| entry.name == "main").unwrap();
+    let inlined = walks(&module, &main.function);
+    assert!(inlined <= 5, "`main` inlines {inlined} BVH walks");
+}
+
 /// #3217: the path tracer opens Vulkan adapters only, and none where the platform has no
 /// Vulkan backend (macOS).
 #[test]
@@ -1911,7 +1953,10 @@ fn gpu_secondary_closed_corner_exits_are_not_skipped() {
         compilation_options: Default::default(),
         cache: None,
     });
-    for case in 0..3 {
+    // Rotate the stored corners through every dominant-vertex index. Besides
+    // reconstruction, boundary_reference compiles the early-return/traversal
+    // pattern that used to crash NVIDIA's compiler with cyclic %3 indices.
+    for (case, rotation) in (0..3).flat_map(|case| (0..3).map(move |rotation| (case, rotation))) {
         let pyramid = case == 1;
         let mut scene = glass_slab(false);
         let (origin, direction) = if pyramid {
@@ -1940,6 +1985,11 @@ fn gpu_secondary_closed_corner_exits_are_not_skipped() {
         } else {
             (Vec3::new(9.9999, if case == 2 { 9.9999 } else { 0. }, 2.), Vec3::new(1., 0., -1.).normalized().unwrap())
         };
+        let mut mesh = (*scene.meshes[0].mesh).clone();
+        for triangle in &mut mesh.triangles {
+            triangle.rotate_left(rotation);
+        }
+        scene.meshes[0].mesh = Arc::new(mesh);
         let mut task = Task::new(context.clone(), scene, request(2), JobOptions::default(), CancelToken::default()).unwrap();
         let mut params = vec![0; 32];
         scene::vector(&mut params, origin, 0.);
@@ -1960,8 +2010,8 @@ fn gpu_secondary_closed_corner_exits_are_not_skipped() {
         let values = task.read_linear().unwrap();
         let result = values[0];
         let expected_distance = if pyramid { 0.0002 } else { 0.0001 * 2.0_f32.sqrt() };
-        assert!((values[1][0] - expected_distance).abs() < 3e-6, "case={case}: {:?}", values);
-        assert_eq!(result, if pyramid { [0., 0., 1., 1.] } else { [0., 1., 1., 1.] }, "pyramid={pyramid}");
+        assert!((values[1][0] - expected_distance).abs() < 3e-6, "case={case} rotation={rotation}: {:?}", values);
+        assert_eq!(result, if pyramid { [0., 0., 1., 1.] } else { [0., 1., 1., 1.] }, "pyramid={pyramid} rotation={rotation}");
     }
 }
 
@@ -2555,17 +2605,29 @@ fn gpu_integer_binary32_add_sub_matches_hardware_bits() {
     let mut pairs = Vec::new();
     let fractions = [0, 1, 0x3fffff, 0x400000, 0x400001, 0x7ffffe, 0x7fffff];
     for exponent in [0u32, 1, 2, 23, 24, 25, 31, 32, 63, 126, 127, 128, 253, 254, 255] {
-        for gap in [0, 1, 23, 24, 25, 31, 32, 63, 254] {
+        for gap in [0, 1, 2, 23, 24, 25, 31, 32, 63, 254] {
             for a_fraction in fractions {
                 for b_fraction in fractions {
                     let a = exponent << 23 | a_fraction;
                     let b = exponent.saturating_sub(gap) << 23 | b_fraction;
-                    pairs.extend([[a, b], [a ^ 0x80000000, b], [b, a], [b, a ^ 0x80000000]]);
+                    pairs.extend([[a, b], [a ^ 0x80000000, b], [b, a], [b, a ^ 0x80000000], [a ^ 0x80000000, b ^ 0x80000000], [a, b ^ 0x80000000]]);
                 }
             }
         }
     }
-    pairs.extend([[0x80000000, 0x80000000], [0, 0x80000000], [1, 0x80000001]]);
+    // Both signs of zeros/NaNs/infinities, subnormal cancellation, carry into
+    // the smallest normal, ties-to-even, rounding carry and finite overflow.
+    let boundaries =
+        [0, 1, 0x7fffff, 0x800000, 0x33800000, 0x33c00000, 0x3f800000, 0x3f800001, 0x3fffffff, 0x7f7fffff, 0x7f800000, 0x7f800001, 0x7fc00000];
+    for a in boundaries {
+        for b in boundaries {
+            for a_sign in [0, 0x80000000] {
+                for b_sign in [0, 0x80000000] {
+                    pairs.push([a | a_sign, b | b_sign]);
+                }
+            }
+        }
+    }
     let mut state = 0x9e3779b9u32;
     while pairs.len() < 65536 {
         state = state.wrapping_mul(1664525).wrapping_add(1013904223);
