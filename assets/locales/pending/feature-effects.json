@@ -1,4 +1,15 @@
 {
+  "ar": {
+    "cmd.timeline.effects": "الأجسام المتأثرة",
+    "timeline.effects.body_component": "{body} — {component}",
+    "timeline.effects.changed": "تم تعديلها",
+    "timeline.effects.created": "تم إنشاؤها",
+    "timeline.effects.empty": "لا تُحدث هذه الميزة أي تغييرات على الأجسام.",
+    "timeline.effects.removed": "تمت إزالتها",
+    "timeline.effects.title": "الأجسام المتأثرة",
+    "timeline.effects.unavailable": "هذا الجسم غير موجود في النموذج الحالي.",
+    "timeline.effects.unevaluated": "لا تتوفر تغييرات محسوبة على الأجسام."
+  },
   "de": {
     "cmd.timeline.effects": "Betroffene Körper",
     "timeline.effects.body_component": "{body} — {component}",
@@ -21,6 +32,17 @@
     "timeline.effects.unavailable": "This body is not in the current model.",
     "timeline.effects.unevaluated": "No evaluated body changes are available."
   },
+  "he": {
+    "cmd.timeline.effects": "גופים מושפעים",
+    "timeline.effects.body_component": "{body} — {component}",
+    "timeline.effects.changed": "שונו",
+    "timeline.effects.created": "נוצרו",
+    "timeline.effects.empty": "לתכונה זו אין שינויים בגופים.",
+    "timeline.effects.removed": "הוסרו",
+    "timeline.effects.title": "גופים מושפעים",
+    "timeline.effects.unavailable": "גוף זה אינו נמצא במודל הנוכחי.",
+    "timeline.effects.unevaluated": "אין שינויים מחושבים זמינים בגופים."
+  },
   "ja": {
     "cmd.timeline.effects": "影響を受けるボディ",
     "timeline.effects.body_component": "{body} — {component}",
@@ -42,6 +64,17 @@
     "timeline.effects.title": "영향을 받는 바디",
     "timeline.effects.unavailable": "이 바디는 현재 모델에 없습니다.",
     "timeline.effects.unevaluated": "평가된 바디 변경 사항이 없습니다."
+  },
+  "vi": {
+    "cmd.timeline.effects": "Các thân khối bị ảnh hưởng",
+    "timeline.effects.body_component": "{body} — {component}",
+    "timeline.effects.changed": "Đã thay đổi",
+    "timeline.effects.created": "Đã tạo",
+    "timeline.effects.empty": "Tính năng này không làm thay đổi thân khối nào.",
+    "timeline.effects.removed": "Đã xóa",
+    "timeline.effects.title": "Các thân khối bị ảnh hưởng",
+    "timeline.effects.unavailable": "Thân khối này không có trong mô hình hiện tại.",
+    "timeline.effects.unevaluated": "Không có thay đổi thân khối đã được tính toán."
   },
   "zh": {
     "cmd.timeline.effects": "受影响的实体",
