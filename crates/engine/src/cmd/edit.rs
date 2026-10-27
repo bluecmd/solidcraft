@@ -70,7 +70,7 @@ pub static COMMANDS: &[CommandSpec] = &[
         "feature: id|name → type, definition (the fields timeline.edit's set changes, with their current values), \
          inputs: [{label, param, expression, unit}] (named inputs parameters.change can also set), error, warning",
     ),
-    CommandSpec::new("timeline.effects", "Affected Bodies", crate::checked!("timeline.effects", feature_effects))
+    CommandSpec::new("timeline.effects", "Affected Bodies", crate::checked!("timeline.effects", feature_effects)).icon("inspect")
         .noundo()
         .contract(&EFFECTS_CONTRACT)
         .output(crate::schema::output_schema_for::<crate::schema::inspect::FeatureEffects>)
