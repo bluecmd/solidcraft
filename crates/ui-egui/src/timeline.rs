@@ -39,7 +39,7 @@ pub(crate) fn affected_bodies_menu(app: &mut SolveApp, ui: &mut egui::Ui, id: u6
                         None => body.name.clone(),
                     };
                     let available = !body.selectable_bodies.is_empty();
-                    let response = ui.add_enabled(available, egui::Button::new(label));
+                    let response = ui.add_enabled_ui(available, |ui| crate::ui_kit::button(ui, label, crate::ui_kit::Button::Normal)).inner;
                     crate::scenario::publish_handle(&format!("timeline:affected:{}", body.name), response.rect.center());
                     if response.on_disabled_hover_text(crate::i18n::tr("timeline.effects.unavailable")).clicked() {
                         let items: Vec<_> = body.selectable_bodies.iter().map(|name| json!({"type": "body", "name": name})).collect();
