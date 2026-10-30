@@ -14,7 +14,11 @@
 //! - **Zero amplitude is the plain material:** [`Sample::PLAIN`] exactly.
 //! - **Deterministic:** integer lattice hashing, polynomial fades and IEEE `+ - × ÷ √ floor` only,
 //!   with no platform `sin`, `cos` or `exp`. The same inputs give bit-identical outputs everywhere.
-//! - **Bounded:** a fixed number of octaves and no loop that depends on the input.
+//! - **Bounded:** at most [`MAX_OCTAVES`] octaves per noise sum and a fixed number of sums per
+//!   family (oak uses two, of 3 and 4 octaves), with no loop that depends on the input.
+//! - **Gradients** are exact derivatives of the height, except where the height is not
+//!   differentiable: at oak's ring boundaries (a step by design) and within 1e-9 mm of oak's grain
+//!   axis, where the radial term is set to zero.
 //! - **Unfiltered:** this is a point reference. A renderer that installs it needs its own
 //!   footprint/filtering contract for primary and secondary rays; it must not use this as level 0.
 //!
@@ -25,18 +29,19 @@
 /// formats that will carry recipes own the final name and its versioning.
 pub const PROVISIONAL_CAPABILITY: &str = "appearance.procedural/draft";
 
-/// Largest coordinate (mm) a point may have: 1 km in each direction.
+/// Largest absolute value (mm) of each coordinate of a point: 1 km per axis, not a radius.
 pub const MAX_COORDINATE_MM: f64 = 1.0e6;
 
-/// Octaves of every noise sum: the fixed cost bound of one evaluation.
-const OCTAVES: usize = 4;
+/// Octaves of one noise sum at most: with the fixed number of sums per family, the cost bound of
+/// one evaluation.
+pub const MAX_OCTAVES: usize = 4;
 
 /// Why a recipe or point was refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatternError {
     /// A parameter is not finite or outside its documented range; names the parameter.
     Parameter(&'static str),
-    /// The point is not finite or exceeds [`MAX_COORDINATE_MM`].
+    /// A coordinate of the point is not finite or exceeds ±[`MAX_COORDINATE_MM`].
     Point,
 }
 
@@ -44,7 +49,7 @@ impl std::fmt::Display for PatternError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PatternError::Parameter(name) => write!(f, "procedural pattern parameter `{name}` is not finite or out of range"),
-            PatternError::Point => write!(f, "procedural pattern point must be finite and within {MAX_COORDINATE_MM} mm of the origin"),
+            PatternError::Point => write!(f, "procedural pattern point must be finite, each coordinate within ±{MAX_COORDINATE_MM} mm"),
         }
     }
 }
@@ -202,7 +207,10 @@ impl Recipe {
     /// What this family does not model yet, for consumers to report rather than approximate.
     pub fn limitations(&self) -> &'static [&'static str] {
         match self {
-            Recipe::Oak(_) => &["end grain (faces across the grain show rings without end-grain pores)"],
+            Recipe::Oak(_) => &[
+                "end grain (faces across the grain show rings without end-grain pores)",
+                "height gradient at ring boundaries (a step) and within 1e-9 mm of the grain axis (radial term zero)",
+            ],
             Recipe::TexturedAbs(_) => &[],
             Recipe::Brushed(_) => &["anisotropic reflection (streaks vary colour and roughness only)"],
         }
@@ -234,6 +242,8 @@ fn oak(o: &Oak, p: [f64; 3]) -> Sample {
     let warp_scale = 1.0 / (4.0 * s);
     let (warp, dwarp) = fbm(scale(p, [warp_scale; 3]), o.seed, 3);
     let r = (p[1] * p[1] + p[2] * p[2]).sqrt();
+    // The radius is not differentiable on the grain axis; within 1e-9 mm of it the radial term of
+    // the gradient is zero (documented in the module contract).
     let dr = if r > 1.0e-9 { [0.0, p[1] / r, p[2] / r] } else { [0.0; 3] };
     let radius = r + o.figure * 2.0 * s * warp;
     let dradius = [0, 1, 2].map(|i| dr[i] + o.figure * 2.0 * s * dwarp[i] * warp_scale);
@@ -246,7 +256,7 @@ fn oak(o: &Oak, p: [f64; 3]) -> Sample {
     let ring_colour = mix(o.earlywood, o.latewood, late);
     // Pores: elongated along the grain, in the earlywood.
     let pore_scale = [1.0 / 1.2, 1.0 / 0.12, 1.0 / 0.12];
-    let (n, dn) = fbm(scale(p, pore_scale), o.seed.wrapping_add(0x9e37_79b9), OCTAVES);
+    let (n, dn) = fbm(scale(p, pore_scale), o.seed.wrapping_add(0x9e37_79b9), MAX_OCTAVES);
     let (mask, dmask) = smoothstep_d(0.15, 0.55, n);
     let earlywood = 1.0 - late;
     let pore = mask * earlywood;
@@ -265,7 +275,7 @@ fn oak(o: &Oak, p: [f64; 3]) -> Sample {
 fn textured_abs(t: &TexturedAbs, p: [f64; 3]) -> Sample {
     let a = t.amplitude;
     let k = 1.0 / t.grade_mm;
-    let (n, dn) = fbm(scale(p, [k; 3]), t.seed, OCTAVES);
+    let (n, dn) = fbm(scale(p, [k; 3]), t.seed, MAX_OCTAVES);
     // n is in about -1..1; heights are centred on the surface.
     let height = 0.5 * t.depth_mm * a * n;
     let grad = [0, 1, 2].map(|i| 0.5 * t.depth_mm * a * dn[i] * k);
@@ -277,7 +287,7 @@ fn textured_abs(t: &TexturedAbs, p: [f64; 3]) -> Sample {
 fn brushed(b: &Brushed, p: [f64; 3]) -> Sample {
     let a = b.amplitude;
     let k = [1.0 / b.streak_length_mm, 1.0 / b.streak_width_mm, 1.0 / b.streak_width_mm];
-    let (n, dn) = fbm(scale(p, k), b.seed, OCTAVES);
+    let (n, dn) = fbm(scale(p, k), b.seed, MAX_OCTAVES);
     let colour = scale(b.tint, [1.0 + b.color_variation * a * n; 3]);
     let roughness = b.roughness * (1.0 + b.roughness_variation * a * n);
     Sample {
@@ -294,7 +304,7 @@ fn brushed(b: &Brushed, p: [f64; 3]) -> Sample {
 /// with its analytic gradient.
 fn fbm(p: [f64; 3], seed: u32, octaves: usize) -> (f64, [f64; 3]) {
     let (mut sum, mut grad, mut weight, mut freq, mut norm) = (0.0, [0.0; 3], 1.0, 1.0, 0.0);
-    for octave in 0..octaves.min(OCTAVES) {
+    for octave in 0..octaves.min(MAX_OCTAVES) {
         let (v, d) = value_noise(scale(p, [freq; 3]), seed.wrapping_add((octave as u32).wrapping_mul(0x632b_e5ab)));
         sum += weight * v;
         for (g, d) in grad.iter_mut().zip(d) {

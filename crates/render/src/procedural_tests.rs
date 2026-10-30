@@ -215,6 +215,7 @@ fn seeds_and_directions_shape_the_patterns() {
 #[test]
 fn limitations_are_reported_and_the_capability_is_provisional() {
     assert!(Recipe::Oak(oak()).limitations().iter().any(|l| l.contains("end grain")));
+    assert!(Recipe::Oak(oak()).limitations().iter().any(|l| l.contains("grain axis")));
     assert!(Recipe::Brushed(brushed()).limitations().iter().any(|l| l.contains("anisotropic")));
     assert!(Recipe::TexturedAbs(abs()).limitations().is_empty());
     assert!(PROVISIONAL_CAPABILITY.ends_with("/draft"));

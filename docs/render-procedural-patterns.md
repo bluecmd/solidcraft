@@ -12,8 +12,8 @@ Consumers (#1656, the starter pack #1722) and the library/design formats that wi
 ## Contract
 
 - **Inputs.** A `Recipe` validated with `Recipe::validate` and a `Point` built with `Point::new`:
-  - The point is in the body's **definition-local** frame, in millimetres. It must be finite and
-    within 1 km of the origin.
+  - The point is in the body's **definition-local** frame, in millimetres. Each coordinate must be
+    finite and within ±1 km (a per-axis limit, not a radius).
   - Every recipe parameter has a documented range. NaN, infinities and out-of-range values are
     refused with the parameter's name.
   - `evaluate` itself can't fail.
@@ -33,7 +33,13 @@ Consumers (#1656, the starter pack #1722) and the library/design formats that wi
     platform `sin`, `cos` or `exp`.
   - The same inputs give bit-identical outputs on every platform. A test pins a digest of
     1000 evaluations per family.
-- **Bounded cost.** At most 4 noise octaves, and no loop whose length depends on the input.
+- **Bounded cost.** At most 4 octaves per noise sum (`procedural::MAX_OCTAVES`) and a fixed
+  number of sums per family: oak uses two (3 and 4 octaves), textured ABS and brushed one each.
+  No loop's length depends on the input.
+- **Gradients** are exact derivatives of the height except where the height is not
+  differentiable: at oak's ring boundaries (a step by design) and within 1e-9 mm of oak's grain
+  axis, where the radial term is set to zero. Consumers that cap or admit gradients agree that
+  with their owner; this evaluator doesn't inherit an existing consumer's gradient cap.
 - **Unfiltered.**
   - This is a point reference, with no footprint or level of detail.
   - A renderer that installs it needs its own footprint/filtering contract for primary and
@@ -53,12 +59,12 @@ Consumers (#1656, the starter pack #1722) and the library/design formats that wi
 
 ## Testing
 
-`crates/render/src/procedural_tests.rs` covers:
+`crates/render/src/procedural_tests.rs` has seven tests, covering:
 - zero-amplitude identity;
 - refusal of hostile parameters and points;
 - output ranges and per-family outputs;
-- analytic height gradients against central differences (away from oak's ring boundaries, which
-  are a step by design);
+- analytic height gradients against central differences, away from oak's ring boundaries (a step
+  by design); the test points stay clear of the grain axis;
 - the determinism digest;
 - seeds and streak direction;
 - ring periodicity.
